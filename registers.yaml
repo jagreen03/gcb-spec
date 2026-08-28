@@ -1,0 +1,27 @@
+# GreenCoyote-Bay Pilot MMIO register map.
+#
+# THIS FILE IS THE SOURCE OF TRUTH. Do not hand-edit generated register
+# definitions in gcb-rtl, gcb-host, or gcb-dashboard -- edit here and rerun
+# regen.py in each consumer.
+#
+# Bump map_version on ANY address, width, or field-encoding change. The proxy
+# stamps this into every snapshot row so old SQLite data decodes correctly.
+
+map_version: "0.1.0"
+address_space:
+  base: 0x00
+  end:  0xA8
+
+registers:
+  # TRANSCRIBE FROM greencoyote_pilot_regs.sv -- not from memory.
+  # Template:
+  # - name: EXEC_CTRL
+  #   offset: 0x00
+  #   width: 32
+  #   access: rw
+  #   domain: inference
+  #   fields:
+  #     - { name: FIRE,      bit: 0,        access: w1p }
+  #     - { name: AUTO_FIRE, bit: 1 }
+  #     - { name: PRECISION, bits: [7, 4], enum: { 0: FP8, 1: FP4, 2: INT4 } }
+  []
