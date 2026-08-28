@@ -1,27 +1,569 @@
-# GreenCoyote-Bay Pilot MMIO register map.
+# =============================================================================
+# GreenCoyote-Bay Pilot FPGA - MMIO Register Specification
+# Project: ODIN_Bridge / Cascaded Optical Reduction Fabric
+# =============================================================================
 #
-# THIS FILE IS THE SOURCE OF TRUTH. Do not hand-edit generated register
-# definitions in gcb-rtl, gcb-host, or gcb-dashboard -- edit here and rerun
-# regen.py in each consumer.
+# THIS FILE IS THE SOURCE OF TRUTH.
+#
+# Do not hand-edit generated register definitions in gcb-rtl, gcb-host, or
+# gcb-dashboard. Edit here, then re-run regen.py in each consumer.
 #
 # Bump map_version on ANY address, width, or field-encoding change. The proxy
-# stamps this into every snapshot row so old SQLite data decodes correctly.
+# stamps map_version into every snapshot row so historical SQLite data can be
+# decoded against the map that produced it.
+#
+# -----------------------------------------------------------------------------
+# TRANSCRIPTION PROVENANCE
+# -----------------------------------------------------------------------------
+# Transcribed from gcb-rtl/rtl/greencoyote_pilot_regs.sv (rank-1 "v8" import,
+# 920 lines, header dated June 2026), by reading the write-decoder case items,
+# the read-decoder concatenations, and the reset block -- NOT the header
+# comment. Where those three disagree, the discrepancy is recorded in the
+# `defects:` block on the affected register.
+#
+# addr_width is 8 here, NOT the 6 the RTL currently declares. Six bits cannot
+# address this map: every offset above 0x3F truncates and aliases onto a
+# lower-half register. See DEFECT-001. The spec states the intended map; the
+# RTL must be widened to match it.
+# =============================================================================
 
-map_version: "0.1.0"
+map_version: "0.2.0"
+
+module: greencoyote_pilot_regs
+
 address_space:
   base: 0x00
-  end:  0xA8
+  end: 0xA8
+  stride: 4
+  addr_width: 8          # RTL currently declares 6 -- see DEFECT-001
+  unmapped_read: 0xDEADBEEF
+
+# Access types used throughout:
+#   rw        read/write storage register
+#   rw_locked read/write, but writes gated by another field (see write_gate)
+#   ro        read-only; reflects a module input signal, no storage
+#   w1p       write-1-pulse; sets a one-cycle strobe, always reads back 0
+#   wo        write-only; no readback path at all
+#   rsvd      reserved; reads 0
+
+defects:
+  DEFECT-001:
+    severity: blocker
+    summary: >
+      mmio_addr is declared [5:0]. Every case item above 0x3F truncates to its
+      low 6 bits and collides with a lower-half register. Verilog case takes
+      the first match, and the lower-half items are listed first, so all
+      upper-half decoding is dead except write 0x68 (lands on free slot 0x28)
+      and read 0x7C (lands on free slot 0x3C). Because the alias hits a real
+      case item, the 0xDEADBEEF sentinel never fires and the host silently
+      receives a different register's contents.
+    fix: widen mmio_addr to [7:0] here, in the AXI wrapper, and in greencoyote_top
+  DEFECT-002:
+    severity: blocker
+    summary: >
+      All outputs are declared `output reg` and then driven by continuous
+      `assign`. Illegal - a variable cannot be continuously assigned. Applies
+      to the unpacked arrays trim_ch, xbar_port_dest, lc_init as well.
+      mmio_rdata is the one legitimate `output reg` (driven procedurally).
+    fix: change every continuously-assigned output to `output wire`
+  DEFECT-003:
+    severity: major
+    summary: >
+      Thermal block 0x40-0x5C is documented in the header comment but has no
+      case items and no module ports. Eight registers that do not exist.
+    fix: implement, or delete from the header map
+  DEFECT-004:
+    severity: major
+    summary: >
+      Several read-decoder concatenations do not total 32 bits. Most
+      zero-extend or truncate harmlessly, but TASK_ALLOC_CTRL (0x90) is 31
+      bits, which shifts TID_ACTIVE_MASK down to [30:15] instead of [31:16],
+      and TILE_ALLOC_MAP (0x98) is 36 bits, which places its fields nowhere
+      near the documented positions.
+    fix: see per-register defects on 0x90 and 0x98
 
 registers:
-  # TRANSCRIBE FROM greencoyote_pilot_regs.sv -- not from memory.
-  # Template:
-  # - name: EXEC_CTRL
-  #   offset: 0x00
-  #   width: 32
-  #   access: rw
-  #   domain: inference
-  #   fields:
-  #     - { name: FIRE,      bit: 0,        access: w1p }
-  #     - { name: AUTO_FIRE, bit: 1 }
-  #     - { name: PRECISION, bits: [7, 4], enum: { 0: FP8, 1: FP4, 2: INT4 } }
-  []
+
+  # ===========================================================================
+  # INFERENCE DOMAIN  0x00 - 0x14
+  # ===========================================================================
+
+  - name: PRECISION_MODE
+    offset: 0x00
+    domain: inference
+    description: DAC/ADC precision mode and analog headroom configuration.
+    fields:
+      - { name: MODE_SEL,       bits: [2, 0],  access: rw, reset: 0b010, signal: r_mode_sel,       output: mode_sel,
+          enum: { 0: INT4, 1: FP4, 2: FP8, 3: BF16 },
+          description: "Reset default FP8 - tightest constraint." }
+      - { name: NOISE_HEADROOM, bits: [4, 3],  access: rw, reset: 0b01,  signal: r_noise_headroom, output: noise_headroom,
+          description: "Bits reserved against the analog noise floor." }
+      - { name: SAT_GUARD,      bits: [6, 5],  access: rw, reset: 0b01,  signal: r_sat_guard,      output: sat_guard,
+          description: "Saturation guard band." }
+      - { name: RSVD,           bits: [31, 7], access: rsvd }
+
+  - name: GLOBAL_CAL
+    offset: 0x04
+    domain: inference
+    description: Global ADC dark-offset and gain calibration.
+    write_gate:
+      field: CAL_LOCK
+      note: "When CAL_LOCK is set, writes to the other three fields are dropped. CAL_LOCK itself stays writable."
+    fields:
+      - { name: DARK_OFFSET,      bits: [11, 0],  access: rw_locked, reset: 0x000, signal: r_dark_offset,      output: dark_offset }
+      - { name: GAIN_TRIM_GLOBAL, bits: [23, 12], access: rw_locked, reset: 0x000, signal: r_gain_trim_global, output: gain_trim_global }
+      - { name: CAL_VALID,        bits: [24, 24], access: rw_locked, reset: 0,     signal: r_cal_valid,        output: cal_valid }
+      - { name: CAL_LOCK,         bits: [25, 25], access: rw,        reset: 0,     signal: r_cal_lock,         output: cal_lock,
+          description: "Always writable, including to clear itself." }
+      - { name: RSVD,             bits: [31, 26], access: rsvd }
+
+  - name: CH_GAIN_TRIM_LO
+    offset: 0x08
+    domain: inference
+    description: Per-channel gain trim, channels 0-3.
+    fields:
+      - { name: TRIM_CH0, bits: [7, 0],   access: rw, reset: 0xFF, signal: r_trim_ch0, output: "trim_ch[0]", description: "0xFF = unity gain." }
+      - { name: TRIM_CH1, bits: [15, 8],  access: rw, reset: 0xFF, signal: r_trim_ch1, output: "trim_ch[1]" }
+      - { name: TRIM_CH2, bits: [23, 16], access: rw, reset: 0xFF, signal: r_trim_ch2, output: "trim_ch[2]" }
+      - { name: TRIM_CH3, bits: [31, 24], access: rw, reset: 0xFF, signal: r_trim_ch3, output: "trim_ch[3]" }
+
+  - name: CH_GAIN_TRIM_HI
+    offset: 0x0C
+    domain: inference
+    description: Per-channel gain trim, channels 4-7.
+    fields:
+      - { name: TRIM_CH4, bits: [7, 0],   access: rw, reset: 0xFF, signal: r_trim_ch4, output: "trim_ch[4]" }
+      - { name: TRIM_CH5, bits: [15, 8],  access: rw, reset: 0xFF, signal: r_trim_ch5, output: "trim_ch[5]" }
+      - { name: TRIM_CH6, bits: [23, 16], access: rw, reset: 0xFF, signal: r_trim_ch6, output: "trim_ch[6]" }
+      - { name: TRIM_CH7, bits: [31, 24], access: rw, reset: 0xFF, signal: r_trim_ch7, output: "trim_ch[7]" }
+
+  - name: REDUCTION_CTRL
+    offset: 0x10
+    domain: inference
+    description: Reduction fire control and sequencer status.
+    fields:
+      - { name: FIRE,        bits: [0, 0],   access: w1p, signal: r_fire_pulse, output: fire,
+          description: "Self-clearing one-cycle strobe. Always reads 0." }
+      - { name: MODE_ACTIVE, bits: [1, 1],   access: ro, source: mode_active }
+      - { name: PASS_INDEX,  bits: [3, 2],   access: ro, source: pass_index,
+          description: "Cascade pass index. 14-GPU workload uses two passes." }
+      - { name: QUEUE_DEPTH, bits: [7, 4],   access: ro, source: queue_depth }
+      - { name: CAL_ERR,     bits: [8, 8],   access: ro, source: cal_err }
+      - { name: FIRE_DONE,   bits: [9, 9],   access: ro, source: fire_done }
+      - { name: AUTO_FIRE,   bits: [10, 10], access: rw, reset: 0, signal: r_auto_fire, output: auto_fire,
+          description: "When set, FIRE asserts automatically on queue_full && !mode_active." }
+      - { name: RSVD,        bits: [31, 11], access: rsvd }
+
+  - name: IRQ_CTRL
+    offset: 0x14
+    domain: inference
+    description: Interrupt enables, status, and clear.
+    fields:
+      - { name: IRQ_EN,             bits: [0, 0], access: rw, reset: 0, signal: r_irq_en,
+          description: "Master enable. irq_out = IRQ_STATUS && IRQ_EN." }
+      - { name: IRQ_FIRE_DONE_EN,   bits: [1, 1], access: rw, reset: 0, signal: r_irq_fire_done_en }
+      - { name: IRQ_CAL_ERR_EN,     bits: [2, 2], access: rw, reset: 0, signal: r_irq_cal_err_en }
+      - { name: IRQ_QUEUE_FULL_EN,  bits: [3, 3], access: rw, reset: 0, signal: r_irq_queue_full_en }
+      - { name: IRQ_PASS_DONE_EN,   bits: [4, 4], access: rw, reset: 0, signal: r_irq_pass_done_en }
+      - { name: RSVD_7_5,           bits: [7, 5], access: rsvd }
+      - { name: IRQ_STATUS,         bits: [8, 8], access: ro, source: r_irq_status,
+          description: "Sticky. Cleared by writing IRQ_CLEAR." }
+      - { name: IRQ_CLEAR,          bits: [9, 9], access: wo,
+          description: "Write 1 to clear IRQ_STATUS. No readback." }
+      - { name: RSVD,               bits: [31, 10], access: rsvd }
+    defects:
+      - "Read concat totals 31 bits (22'h0 pad should be 23'h0). Zero-extends benignly; field positions are correct."
+
+  # ===========================================================================
+  # ROUTING DOMAIN  0x18 - 0x20
+  # ===========================================================================
+
+  - name: XBAR_ROUTE_LO
+    offset: 0x18
+    domain: routing
+    description: Crossbar destination for input ports 0-3.
+    write_side_effect: "Pulses xbar_update for one cycle to strobe the optical switch."
+    field_enum: &xbar_dest_enum
+      0: GPU0
+      1: GPU1
+      2: GPU2
+      3: GPU3
+      4: GPU4
+      5: PIPELINE_NEXT
+      6: REDUCE_STAGE
+      7: BROADCAST
+    fields:
+      - { name: XBAR_DEST0, bits: [2, 0],   access: rw, reset: 0b111, signal: r_xbar_dest0, output: "xbar_port_dest[0]", enum: *xbar_dest_enum }
+      - { name: XBAR_DEST1, bits: [5, 3],   access: rw, reset: 0b111, signal: r_xbar_dest1, output: "xbar_port_dest[1]", enum: *xbar_dest_enum }
+      - { name: XBAR_DEST2, bits: [8, 6],   access: rw, reset: 0b111, signal: r_xbar_dest2, output: "xbar_port_dest[2]", enum: *xbar_dest_enum }
+      - { name: XBAR_DEST3, bits: [11, 9],  access: rw, reset: 0b111, signal: r_xbar_dest3, output: "xbar_port_dest[3]", enum: *xbar_dest_enum }
+      - { name: RSVD,       bits: [31, 12], access: rsvd }
+
+  - name: XBAR_ROUTE_HI
+    offset: 0x1C
+    domain: routing
+    description: Crossbar destination for input ports 4-7.
+    write_side_effect: "Pulses xbar_update for one cycle."
+    fields:
+      - { name: XBAR_DEST4, bits: [2, 0],   access: rw, reset: 0b111, signal: r_xbar_dest4, output: "xbar_port_dest[4]", enum: *xbar_dest_enum }
+      - { name: XBAR_DEST5, bits: [5, 3],   access: rw, reset: 0b111, signal: r_xbar_dest5, output: "xbar_port_dest[5]", enum: *xbar_dest_enum }
+      - { name: XBAR_DEST6, bits: [8, 6],   access: rw, reset: 0b111, signal: r_xbar_dest6, output: "xbar_port_dest[6]", enum: *xbar_dest_enum }
+      - { name: XBAR_DEST7, bits: [11, 9],  access: rw, reset: 0b111, signal: r_xbar_dest7, output: "xbar_port_dest[7]", enum: *xbar_dest_enum }
+      - { name: RSVD,       bits: [31, 12], access: rsvd }
+
+  - name: XBAR_MODE_STATUS
+    offset: 0x20
+    domain: routing
+    description: Crossbar parallelism mode and switch-ready status.
+    write_side_effect: "Pulses xbar_update for one cycle."
+    fields:
+      - { name: XBAR_MODE,  bits: [1, 0],  access: rw, reset: 0b00, signal: r_xbar_mode, output: xbar_mode,
+          enum: { 0: TENSOR, 1: PIPELINE, 2: MOE, 3: CUSTOM } }
+      - { name: XBAR_READY, bits: [2, 2],  access: ro, source: xbar_ready }
+      - { name: RSVD,       bits: [31, 3], access: rsvd }
+
+  # ===========================================================================
+  # TRAINING DOMAIN  0x24 - 0x38
+  # ===========================================================================
+
+  - name: TRAIN_CTRL
+    offset: 0x24
+    domain: training
+    description: LoRA sidecar training mode control.
+    fields:
+      - { name: TRAIN_MODE,     bits: [0, 0],   access: rw, reset: 0, signal: r_train_mode,     output: train_mode,
+          enum: { 0: INFERENCE, 1: LORA_ADAPT } }
+      - { name: DAC_FREEZE,     bits: [1, 1],   access: rw, reset: 1, signal: r_dac_freeze,     output: dac_freeze,
+          description: "Reset default 1 - freeze sidecar DACs is the safe state." }
+      - { name: UPDATE_PENDING, bits: [2, 2],   access: ro, source: update_pending }
+      - { name: UPDATE_ACTIVE,  bits: [3, 3],   access: ro, source: update_active }
+      - { name: SIDECAR_ENABLE, bits: [4, 4],   access: rw, reset: 0, signal: r_sidecar_enable, output: sidecar_enable }
+      - { name: LORA_RANK,      bits: [7, 5],   access: rw, reset: 0b001, signal: r_lora_rank,  output: lora_rank,
+          description: "Encoded rank. Reset default 001 = rank 8." }
+      - { name: ALPHA_SCALED,   bits: [23, 8],  access: rw, reset: 0x0100, signal: r_alpha_scaled, output: alpha_scaled,
+          format: Q8.8, description: "alpha/r. Reset default 0x0100 = 1.0." }
+      - { name: RSVD,           bits: [31, 24], access: rsvd }
+    defects:
+      - "SIDECAR_ENABLE is stored and driven out, but the read decoder returns a hardwired 1'b0 at bit 4. Write-only in practice."
+
+  - name: GRAD_UPDATE_STATUS
+    offset: 0x28
+    domain: training
+    access: ro
+    description: Gradient update progress from the Learning Appliance.
+    fields:
+      - { name: CHANNELS_UPDATED, bits: [15, 0],  access: ro, source: channels_updated }
+      - { name: UPDATE_DONE,      bits: [16, 16], access: ro, source: update_done }
+      - { name: CHECKSUM_PASS,    bits: [17, 17], access: ro, source: checksum_pass }
+      - { name: CHECKSUM_FAIL,    bits: [18, 18], access: ro, source: checksum_fail }
+      - { name: RSVD,             bits: [31, 19], access: rsvd }
+
+  - name: LORA_TILE_ADDR
+    offset: 0x2C
+    domain: training
+    description: Sidecar DAC tile coordinates.
+    fields:
+      - { name: LORA_TILE_ROW, bits: [15, 0],  access: rw, reset: 0x0000, signal: r_lora_tile_row, output: lora_tile_row }
+      - { name: LORA_TILE_COL, bits: [31, 16], access: rw, reset: 0x0000, signal: r_lora_tile_col, output: lora_tile_col }
+
+  - name: CELL_COUNT_SYNC
+    offset: 0x30
+    domain: training
+    description: Training Cell census and readiness.
+    fields:
+      - { name: CELL_COUNT,       bits: [9, 0],   access: rw, reset: 0x008, signal: r_cell_count, output: cell_count,
+          description: "Host writes total cell count at init. Reset default 8." }
+      - { name: CELLS_READY,      bits: [19, 10], access: ro, source: cells_ready }
+      - { name: ALL_CELLS_READY,  bits: [20, 20], access: ro, source: null,
+          description: "Documented but hardwired to 1'b0 in the read decoder. Not computed." }
+      - { name: GRAD_REDUCE_DONE, bits: [21, 21], access: ro, source: grad_reduce_done }
+      - { name: RSVD,             bits: [31, 22], access: rsvd }
+    defects:
+      - "Read concat totals 33 bits (11'h0 pad should be 10'h0). MSB truncates off the pad; field positions are correct."
+      - "ALL_CELLS_READY is a hardwired zero, not a real status bit."
+
+  - name: GRAD_REDUCE_CTRL
+    offset: 0x34
+    domain: training
+    description: Optical gradient all-reduce control.
+    fields:
+      - { name: GRAD_REDUCE_EN,   bits: [0, 0],  access: rw,  reset: 0, signal: r_grad_reduce_en,   output: grad_reduce_en }
+      - { name: GRAD_REDUCE_FIRE, bits: [1, 1],  access: w1p, signal: r_grad_reduce_fire, output: grad_reduce_fire,
+          description: "Self-clearing. Always reads 0." }
+      - { name: AUTO_GRAD_REDUCE, bits: [2, 2],  access: rw,  reset: 0, signal: r_auto_grad_reduce, output: auto_grad_reduce,
+          description: "Fires when cells_ready >= CELL_COUNT && !grad_reduce_done." }
+      - { name: RSVD_7_3,         bits: [7, 3],  access: rsvd }
+      - { name: GRAD_SCALE,       bits: [31, 8], access: rw, reset: 0x010000, signal: r_grad_scale, output: grad_scale,
+          format: Q8.16, description: "Reset default 0x010000 = 1.0." }
+
+  - name: SPI_CFG
+    offset: 0x38
+    domain: training
+    description: Sidecar SPI bus configuration.
+    fields:
+      - { name: N_SPI_BUSES, bits: [1, 0],   access: rw, reset: 0b00,   signal: r_n_spi_buses, output: n_spi_buses,
+          description: "Parallel SPI buses per cell. Reset default 0 = 1 bus." }
+      - { name: RSVD_7_2,    bits: [7, 2],   access: rsvd }
+      - { name: SPI_CLK_DIV, bits: [23, 8],  access: rw, reset: 0x0004, signal: r_spi_clk_div, output: spi_clk_div }
+      - { name: RSVD,        bits: [31, 24], access: rsvd }
+
+  # ===========================================================================
+  # THERMAL DOMAIN  0x40 - 0x5C   -- NOT IMPLEMENTED (DEFECT-003)
+  # ===========================================================================
+  # These eight offsets appear in the RTL header comment but have no case items
+  # and no module ports. They are recorded here as unimplemented so the
+  # generator emits no constants for them and so the gap is visible rather than
+  # silently absent. Populate `fields:` when the thermal block is built.
+
+  - { name: THERMAL_TARGET,     offset: 0x40, domain: thermal, implemented: false, description: "TEC setpoint." }
+  - { name: THERMISTOR_TELEM0,  offset: 0x44, domain: thermal, implemented: false }
+  - { name: THERMISTOR_TELEM1,  offset: 0x48, domain: thermal, implemented: false }
+  - { name: TEC_CTRL_STATUS,    offset: 0x4C, domain: thermal, implemented: false }
+  - { name: THERMAL_GUARD_RAIL, offset: 0x50, domain: thermal, implemented: false, description: "Three-tier guard rail status." }
+  - { name: THERMAL_LOG,        offset: 0x54, domain: thermal, implemented: false }
+  - { name: THERMAL_IRQ_CTRL,   offset: 0x58, domain: thermal, implemented: false }
+  - { name: TEC_PID_COEFF,      offset: 0x5C, domain: thermal, implemented: false }
+
+  # ===========================================================================
+  # ISA EXECUTION DOMAIN  0x60 - 0x7C
+  # ===========================================================================
+
+  - name: EXEC_CTRL
+    offset: 0x60
+    domain: isa
+    description: Primitive ISA interpreter control and status.
+    fields:
+      - { name: EXEC_START,   bits: [0, 0],   access: rw, reset: 0, signal: r_exec_start, output: exec_start }
+      - { name: EXEC_STOP,    bits: [1, 1],   access: rw, reset: 0, signal: r_exec_stop,  output: exec_stop }
+      - { name: EXEC_RESET,   bits: [2, 2],   access: rw, reset: 0, signal: r_exec_reset, output: exec_reset }
+      - { name: EXEC_STEP,    bits: [3, 3],   access: rw, reset: 0, signal: r_exec_step,  output: exec_step }
+      - { name: RSVD_7_4,     bits: [7, 4],   access: rsvd }
+      - { name: EXEC_RUNNING, bits: [8, 8],   access: ro, source: exec_running }
+      - { name: EXEC_DONE,    bits: [9, 9],   access: ro, source: exec_done }
+      - { name: EXEC_ERROR,   bits: [10, 10], access: ro, source: exec_error }
+      - { name: RSVD_11,      bits: [11, 11], access: rsvd }
+      - { name: EXEC_PC,      bits: [23, 12], access: ro, source: exec_pc }
+      - { name: EXEC_OPCODE,  bits: [31, 24], access: ro, source: exec_opcode }
+    defects:
+      - "EXEC_START/STOP/RESET/STEP are level registers that latch and never self-clear. They are almost certainly intended as w1p strobes - as written, EXEC_START stays asserted forever after one write."
+
+  - name: BRAM_WR_ADDR
+    offset: 0x64
+    domain: isa
+    description: BRAM program-store write address.
+    write_side_effect: "Clears bram_wr_en. Auto-increments on a BRAM_WR_DATA_HI write."
+    fields:
+      - { name: BRAM_WR_ADDR, bits: [11, 0],  access: rw, reset: 0x000, signal: r_bram_wr_addr, output: bram_wr_addr }
+      - { name: RSVD,         bits: [31, 12], access: rsvd }
+
+  - name: BRAM_WR_DATA_LO
+    offset: 0x68
+    domain: isa
+    description: Low 32 bits of the 64-bit instruction word.
+    write_side_effect: "Clears bram_wr_en."
+    fields:
+      - { name: BRAM_WR_DATA_LO, bits: [31, 0], access: rw, reset: 0x00000000, signal: r_bram_wr_data_lo, output: bram_wr_data_lo }
+
+  - name: BRAM_WR_DATA_HI
+    offset: 0x6C
+    domain: isa
+    description: High 32 bits. Writing this commits the assembled instruction.
+    write_side_effect: "Asserts bram_wr_en and increments BRAM_WR_ADDR."
+    fields:
+      - { name: BRAM_WR_DATA_HI, bits: [31, 0], access: rw, reset: 0x00000000, signal: r_bram_wr_data_hi, output: bram_wr_data_hi }
+    defects:
+      - "bram_wr_en is set here but has no auto-clear (unlike r_fire_pulse). It is only cleared by a subsequent 0x64 or 0x68 write, so it stays asserted across the gap."
+
+  - name: LC_LOAD_LO
+    offset: 0x70
+    domain: isa
+    description: Loop counter initial values, LC0 and LC1.
+    fields:
+      - { name: LC0, bits: [15, 0],  access: rw, reset: 0x0000, signal: "r_lc_init[0]", output: "lc_init[0]" }
+      - { name: LC1, bits: [31, 16], access: rw, reset: 0x0000, signal: "r_lc_init[1]", output: "lc_init[1]" }
+
+  - name: LC_LOAD_HI
+    offset: 0x74
+    domain: isa
+    description: Loop counter initial values, LC2 and LC3.
+    fields:
+      - { name: LC2, bits: [15, 0],  access: rw, reset: 0x0000, signal: "r_lc_init[2]", output: "lc_init[2]" }
+      - { name: LC3, bits: [31, 16], access: rw, reset: 0x0000, signal: "r_lc_init[3]", output: "lc_init[3]" }
+
+  - name: SYNC_STATUS
+    offset: 0x78
+    domain: isa
+    access: ro
+    description: Fabric SYNC barrier status.
+    fields:
+      - { name: SYNC_PENDING, bits: [15, 0],  access: ro, source: sync_pending, description: "SYNC_ID being awaited." }
+      - { name: RSVD_16,      bits: [16, 16], access: rsvd }
+      - { name: SYNC_TIMEOUT, bits: [17, 17], access: ro, source: sync_timeout }
+      - { name: RSVD,         bits: [31, 18], access: rsvd }
+
+  - name: EXEC_ERR_LOG
+    offset: 0x7C
+    domain: isa
+    access: ro
+    description: Interpreter error capture.
+    fields:
+      - { name: ERR_PC,     bits: [11, 0],  access: ro, source: err_pc }
+      - { name: ERR_OPCODE, bits: [19, 12], access: ro, source: err_opcode }
+      - { name: ERR_CAUSE,  bits: [23, 20], access: ro, source: err_cause }
+      - { name: RSVD,       bits: [31, 24], access: rsvd }
+    defects:
+      - "RTL comment claims ERR_CAUSE is at [27:24]. The actual concatenation places it at [23:20]. Spec follows the concatenation."
+
+  # ===========================================================================
+  # SNAPSHOT DOMAIN  0x80 - 0x8C
+  # ===========================================================================
+
+  - name: SNAPSHOT_STATUS
+    offset: 0x80
+    domain: snapshot
+    access: ro
+    description: Snapshot and rollback state machine status.
+    fields:
+      - { name: SNAPSHOT_READY,    bits: [0, 0],   access: ro, source: snapshot_ready }
+      - { name: SNAPSHOT_RUNNING,  bits: [1, 1],   access: ro, source: snapshot_running }
+      - { name: SNAP_DIVERGE,      bits: [2, 2],   access: ro, source: snap_diverge, description: "CRC-32 mismatch vs previous snapshot." }
+      - { name: ROLLBACK_ACTIVE,   bits: [3, 3],   access: ro, source: rollback_active }
+      - { name: ROLLBACK_COMPLETE, bits: [4, 4],   access: ro, source: rollback_complete }
+      - { name: SYSTEMIC_FAULT,    bits: [5, 5],   access: ro, source: systemic_fault, description: "ROLLBACK_LIMIT exceeded." }
+      - { name: RESTORE_OK,        bits: [6, 6],   access: ro, source: restore_ok }
+      - { name: RESTORE_FAIL,      bits: [7, 7],   access: ro, source: restore_fail }
+      - { name: SNAP_ID_LAST,      bits: [15, 8],  access: ro, source: snap_id_last }
+      - { name: SNAP_PC_LAST,      bits: [27, 16], access: ro, source: snap_pc_last }
+      - { name: RSVD,              bits: [31, 28], access: rsvd }
+
+  - name: ROLLBACK_CTRL
+    offset: 0x84
+    domain: snapshot
+    description: Automatic rollback policy.
+    fields:
+      - { name: ROLLBACK_COUNT,  bits: [7, 0],   access: ro, source: null,
+          description: "Documented as rollback_count from the interpreter, but hardwired 8'h0 in the read decoder." }
+      - { name: ROLLBACK_LIMIT,  bits: [15, 8],  access: rw, reset: 0x03, signal: r_rollback_limit, output: rollback_limit }
+      - { name: SNAP_PC_LAST,    bits: [27, 16], access: ro, source: snap_pc_last, description: "Mirror of SNAPSHOT_STATUS.SNAP_PC_LAST." }
+      - { name: FAULT_IRQ_EN,    bits: [28, 28], access: rw, reset: 1, signal: r_fault_irq_en, output: fault_irq_en }
+      - { name: ROLLBACK_EN,     bits: [29, 29], access: rw, reset: 1, signal: r_rollback_en,  output: rollback_en }
+      - { name: RSVD,            bits: [31, 30], access: rsvd }
+
+  - name: FAULT_LOG
+    offset: 0x88
+    domain: snapshot
+    access: ro
+    description: Last fault capture.
+    fields:
+      - { name: FAULT_CAUSE,  bits: [3, 0],   access: ro, source: fault_cause }
+      - { name: FAULT_TILE,   bits: [11, 4],  access: ro, source: fault_tile }
+      - { name: FAULT_PC,     bits: [23, 12], access: ro, source: fault_pc }
+      - { name: FAULT_COUNT,  bits: [27, 24], access: ro, source: fault_count }
+      - { name: FAULT_IRQ_EN, bits: [28, 28], access: ro, source: r_fault_irq_en, description: "Mirror of ROLLBACK_CTRL.FAULT_IRQ_EN." }
+      - { name: RSVD,         bits: [31, 29], access: rsvd }
+
+  - name: SNAP_LOG_PTR
+    offset: 0x8C
+    domain: snapshot
+    access: ro
+    description: BRAM location of the most recent snapshot.
+    fields:
+      - { name: SNAP_LOG_BASE, bits: [11, 0],  access: ro, source: snap_log_base }
+      - { name: SNAP_LOG_SIZE, bits: [23, 12], access: ro, source: snap_log_size }
+      - { name: SNAP_COUNT,    bits: [31, 24], access: ro, source: snap_count }
+    defects:
+      - "Read concat totals 40 bits. The leading 8'h0 pad truncates away entirely, which happens to leave the three fields correctly placed. Fix the pad anyway - it currently works by accident."
+
+  # ===========================================================================
+  # OS / MULTI-TASK DOMAIN  0x90 - 0xA8
+  # ===========================================================================
+
+  - name: TASK_ALLOC_CTRL
+    offset: 0x90
+    domain: os
+    description: TID selection and task allocation status.
+    fields:
+      - { name: ACTIVE_TID,      bits: [3, 0],   access: rw, reset: 0x0, signal: r_active_tid, output: active_tid,
+          description: "Selects which TID the 0x94/0xA0 status reads refer to." }
+      - { name: TARGET_TID,      bits: [7, 4],   access: rw, reset: 0x0, signal: r_target_tid, output: target_tid,
+          description: "TID for the next CONTEXT_SWITCH." }
+      - { name: TASK_COUNT,      bits: [11, 8],  access: ro, source: task_count }
+      - { name: ALLOC_CONFLICT,  bits: [12, 12], access: ro, source: alloc_conflict }
+      - { name: SWITCH_ACTIVE,   bits: [13, 13], access: ro, source: switch_active }
+      - { name: SHUTDOWN_READY,  bits: [14, 14], access: ro, source: shutdown_ready_status }
+      - { name: SHUTDOWN_ACK,    bits: [15, 15], access: wo,
+          description: "Documented in the write-case comment but never decoded. Not implemented." }
+      - { name: TID_ACTIVE_MASK, bits: [31, 16], access: ro, source: tid_active_mask,
+          description: "Bitmask of running TIDs, one bit per TID, 16 TIDs max." }
+    defects:
+      - "BLOCKER: read concat totals 31 bits - the [15] pad for SHUTDOWN_ACK is missing. TID_ACTIVE_MASK therefore lands at [30:15], not [31:16]. Every TID in the mask reads one position low."
+      - "SHUTDOWN_ACK is documented in the write comment but absent from the write decoder."
+
+  - name: TID_STATUS
+    offset: 0x94
+    domain: os
+    access: ro
+    description: Per-TID context state. Selected by TASK_ALLOC_CTRL.ACTIVE_TID.
+    fields:
+      - { name: TID_STATE,        bits: [7, 0],   access: ro, source: tid_state,
+          enum: { 0x00: EMPTY, 0x01: ALLOCATED, 0x02: READY, 0x03: RUNNING, 0x04: SUSPENDED,
+                  0x05: BLOCKED, 0x06: SNAPSHOT, 0x07: FAULT, 0x08: COMPLETE, 0x09: SHUTDOWN, 0xFF: ERROR } }
+      - { name: TID_PRIORITY,     bits: [11, 8],  access: ro, source: tid_priority }
+      - { name: TID_PC,           bits: [23, 12], access: ro, source: tid_pc }
+      - { name: TID_FAULT_COUNT,  bits: [27, 24], access: ro, source: tid_fault_count }
+      - { name: TID_ANCHOR_VALID, bits: [28, 28], access: ro, source: tid_anchor_valid }
+      - { name: RSVD,             bits: [31, 29], access: rsvd }
+
+  - name: TILE_ALLOC_MAP
+    offset: 0x98
+    domain: os
+    access: ro
+    description: Ownership of the tile selected by TILE_SELECT.
+    fields:
+      - { name: TILE_SELECT_RB, bits: [8, 0],   access: ro, source: r_tile_select, description: "Readback of TILE_SELECT." }
+      - { name: TILE_TID,       bits: [12, 9],  access: ro, source: tile_tid }
+      - { name: TILE_ALLOCATED, bits: [13, 13], access: ro, source: tile_allocated }
+      - { name: RSVD,           bits: [31, 14], access: rsvd }
+    defects:
+      - "BLOCKER: read concat totals 36 bits. The RTL comment claims TILE_ALLOCATED at [9] and TILE_TID at [8:5], overlapping the 9-bit TILE_SELECT. After 36->32 truncation the fields actually land at [13] and [12:9]. Spec records the actual placement; the comment is wrong and the pad must be fixed to 18'h0."
+
+  - name: TILE_SELECT
+    offset: 0x9C
+    domain: os
+    description: Tile index for the TILE_ALLOC_MAP query.
+    fields:
+      - { name: TILE_SELECT, bits: [8, 0],  access: rw, reset: 0x000, signal: r_tile_select, output: tile_select }
+      - { name: RSVD,        bits: [31, 9], access: rsvd }
+
+  - name: RATE_LIMIT_STATUS
+    offset: 0xA0
+    domain: os
+    access: ro
+    description: Bandwidth token bucket for ACTIVE_TID.
+    fields:
+      - { name: BW_TOKENS_REMAIN,  bits: [15, 0],  access: ro, source: bw_tokens_remain }
+      - { name: BW_QUOTA_MBPS,     bits: [31, 16], access: ro, source: bw_quota_mbps_status }
+
+  - name: SCHED_STATS
+    offset: 0xA4
+    domain: os
+    access: ro
+    description: Scheduler cycle fractions for TID0-3, one byte each.
+    fields:
+      - { name: SCHED_CYCLES, bits: [31, 0], access: ro, source: sched_cycles }
+
+  - name: SHUTDOWN_CTRL
+    offset: 0xA8
+    domain: os
+    description: Ordered shutdown sequencing.
+    fields:
+      - { name: SHUTDOWN_INIT,        bits: [0, 0],   access: rw, reset: 0, signal: r_shutdown_init,         output: shutdown_init }
+      - { name: EMERGENCY_SHUTDOWN,   bits: [1, 1],   access: rw, reset: 0, signal: r_emergency_shutdown_sw, output: emergency_shutdown_sw }
+      - { name: FLUSH_OMBS,           bits: [2, 2],   access: rw, reset: 1, signal: r_flush_ombs,            output: flush_ombs }
+      - { name: IRQ_BEFORE_POWER,     bits: [3, 3],   access: rw, reset: 1, signal: r_irq_before_power,      output: irq_before_power }
+      - { name: SHUTDOWN_TIMEOUT_MS,  bits: [15, 4],  access: rw, reset: 0xFA0, signal: r_shutdown_timeout_ms, output: shutdown_timeout_ms,
+          description: "Reset default 0xFA0 = 4000 ms." }
+      - { name: POWER_OFF_ASSERT,     bits: [16, 16], access: ro, source: power_off_assert }
+      - { name: ALL_TIDS_SNAPSHOTTED, bits: [17, 17], access: ro, source: all_tids_snapshotted }
+      - { name: OMB_FLUSH_DONE,       bits: [18, 18], access: ro, source: omb_flush_done }
+      - { name: RSVD,                 bits: [31, 19], access: rsvd }
