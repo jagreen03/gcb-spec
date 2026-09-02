@@ -1,6 +1,6 @@
 # Carry-save streaming contract — Vortex accumulator → optical pilot
 
-**Contract version:** 0.2.0 (draft)
+**Contract version:** 0.3.0 (draft)
 **Status:** proposed. Defines the logical boundary only. The pilot-side register
 and RTL changes in §8 are **required follow-on work and are not yet implemented**
 — today's `greencoyote_photonic_sequencer.sv` still truncates `buf_data[i][11:0]`
@@ -9,7 +9,19 @@ and RTL changes in §8 are **required follow-on work and are not yet implemented
 integration shim (compute side).
 **Related:** `registers.yaml` (`PRECISION_MODE`, `GLOBAL_CAL`, `REDUCTION_CTRL`);
 `gcb-rtl/rtl/greencoyote_photonic_sequencer.sv`; `decisions/ADR-001`;
-`gcb-papers/p1-cascaded-reduction/optical_reduction_paper.md` §3.4, §4.1.
+`vortex_integration_notes.md` (compute-side tap, source-verified against Vortex
+3.0); `gcb-papers/p1-cascaded-reduction/optical_reduction_paper.md` §3.4, §4.1.
+
+**Changelog.**
+- 0.3.0 — reconciled against the cloned Vortex 3.0 tree (`hw/rtl/tcu/`, type
+  `TFR`). Tap point fixed at `VX_tcu_core.result_if` **per TCU block**; the wire
+  word is native **IEEE fp32 / int32**, not Q17.14 (the shim converts — §4.2);
+  the microscale block exponent exists only under `VX_CFG_TCU_MX_ENABLE`,
+  otherwise the shim self-derives (§4.2); §6.4 notes the TCU landing queue as
+  upstream slack; §8 adds the required `VX_CFG_*` build flags; §9 "shared vs
+  per-unit stream" resolved toward per-block.
+- 0.2.0 — added §2 architectural invariant (do-not-widen-the-converter).
+- 0.1.0 — initial contract.
 
 **Framing.** Civil compute-integration engineering; no defense or military
 content.
@@ -19,18 +31,19 @@ content.
 ## 1. The boundary
 
 ```
-  Vortex 3.0 compute unit i                         GreenCoyote-Bay pilot (user_clk, 300 MHz)
-  ─────────────────────────                         ────────────────────────────────────────
-  Ten-Four tensor core                              per-lane async FIFO      photonic sequencer
-   fused dot-product  ──► accumulator ──► writeback   ┌────────────┐  buf_data[i][31:0]  ┌──────────┐
-   (INT32 / FP32,        register file    shim +      │  wr: core  │ ─────────────────►  │ NORMALIZE│
-    microscale exp)      (tile boundary)  AXI-Stream  │  rd: pilot │  buf_full[i]        │  (BFP)   │
-                                          master   ──►│  depth ≥ 2 │ ─────────────────►  │  PACK    │
-                                          M_AXIS_CS   └────────────┘ ◄───── buf_clear[i] │  FIRE …  │
+  Vortex 3.0 TCU block i                            GreenCoyote-Bay pilot (user_clk, 300 MHz)
+  ─────────────────────                             ────────────────────────────────────────
+  VX_tcu_core (Ten-Four TFR)                        per-lane async FIFO      photonic sequencer
+   FEDP grid ─► landing queue ─► result_if           ┌────────────┐  buf_data[i][31:0]  ┌──────────┐
+   d_val[e] : fp32 | int32       shim (fp32/int32    │  wr: core  │ ─────────────────►  │ NORMALIZE│
+   (per output PE e)              → Q17.14) +        │  rd: pilot │  buf_full[i]        │  (BFP)   │
+                                  AXI-Stream  ──────►│  depth ≥ 2 │ ─────────────────►  │  PACK    │
+                                  master M_AXIS_CS   └────────────┘ ◄───── buf_clear[i] │  FIRE …  │
                                                                                         └──────────┘
 ```
 
-One AXI4-Stream channel per compute unit (`M_AXIS_CS`), terminating in one
+One AXI4-Stream channel per Vortex TCU block (`M_AXIS_CS`), tapped off
+`VX_tcu_core.result_if` (`vortex_integration_notes.md` §3), terminating in one
 dual-clock FIFO per unit inside the pilot. The FIFO **is** the buffer-halt buffer
 of the paper §3.4: it absorbs per-unit completion skew, and the pilot fires the
 optical stage only when every required `buf_full` bit is set. No clock
@@ -140,7 +153,11 @@ under a power-summing combiner and is explicitly **out of contract**.
 
 The tap point on the Vortex side is therefore the **accumulator writeback at the
 compute-tile boundary** — a register-file value, already resolved — never the
-intra-MAC 3:2-compressor state.
+intra-MAC 3:2-compressor state. Source-verified against Vortex 3.0: the Ten-Four
+`TFR` FEDP resolves its internal `sum_vec` / `carry_vec` to sign-magnitude in
+`tfr/VX_tcu_tfr_acc.sv` and normalises to a 32-bit float/int two stages later in
+`tfr/VX_tcu_tfr_norm_round.sv`; the tap at `VX_tcu_core.result_if` sees only that
+resolved 32-bit word (`vortex_integration_notes.md` §3–§4).
 
 ### 3.2 Why the port is 32-bit when the DAC window is 12-bit
 
@@ -155,34 +172,39 @@ contract existed and is replaced by the block-floating-point NORMALIZE stage in
 
 ## 4. Numeric format
 
-### 4.1 On the wire (Vortex → FIFO)
+### 4.1 Two points, two formats
 
-| Field | Width | Meaning |
-|-------|-------|---------|
-| `acc_word` | 32 | Two's-complement fixed-point partial sum, format **Q17.14** (17 integer bits incl. sign, 14 fraction). See §4.2 for the FP32 case. |
-| carried in `tuser` | 6 | `{nan_inf, clamp_src, cell_lane[3:0]}` — see §6.3 |
+| Point | Format |
+|-------|--------|
+| **Vortex writeback → shim** (`VX_tcu_core.result_if.data.data[e]`) | native **IEEE-754 binary32** (float output modes) or **int32** (INT8/INT4 modes), selected by `fmt_d`; NaN-boxed to bits `[63:32]` when `VX_CFG_XLEN = 64`. This is what Ten-Four produces — *not* fixed point. |
+| **shim → FIFO** (`M_AXIS_CS.TDATA` → `buf_data[i]`) | `acc_word`, 32-bit two's-complement fixed point, format **Q17.14** (17 integer bits incl. sign, 14 fraction). |
+| carried in `TUSER` | 6 bits — `{nan_inf, clamp_src, cell_lane[3:0]}` — see §6.3 |
 
 `acc_word` is signed. Transformer partial sums are signed; the optical path is
 unipolar (intensity ≥ 0). The sign is carried across the DAC boundary by
 **offset-binary encoding applied by the pilot** (§5.3), not by the compute unit.
 
-### 4.2 INT32 vs. FP32 accumulator
+### 4.2 Shim conversion (fp32 / int32 → Q17.14)
 
-- **INT32 accumulate (INT8/INT4 inference):** the Ten-Four accumulator is already
-  an integer. The shim sign-extends / saturates it into Q17.14 by placing the
-  integer at the binary point (`acc_word = sat32(acc_int <<< 14 >>> shift_hint)`),
-  where `shift_hint` is the per-tensor microscale left over from INT8 requant.
-  No rounding here — the value is exact.
-- **FP32 accumulate (FP8/BF16 inference, training-adjacent):** the shim converts
-  `float32 → Q17.14` using the Ten-Four **microscale block exponent** as the
-  reference scale: `acc_word = rne( acc_f32 * 2^(14 − blk_exp_tf) )`, saturating
-  to ±(2^17−2^−14). `blk_exp_tf` is Ten-Four's own per-block scaling exponent,
-  emitted alongside the tile; this makes the fixed-point mantissa occupy the top
-  of the 32-bit word for the block's dynamic range. `rne` = round-nearest-even.
-  NaN/Inf → saturate to full-scale **and** set `tuser.nan_inf` (§7).
+The shim is a small block on the Vortex **core clock**, tapping
+`VX_tcu_core.result_if`; it does not talk to other units or other lanes. See
+`vortex_integration_notes.md` §5 for the source-level placement.
 
-The shim is a small, purely combinational-plus-one-register block on the Vortex
-core clock. It does **not** talk to other units.
+- **Integer modes (INT8 / INT4):** the writeback word is already an integer.
+  `acc_word = sat32(int_result)` placed at the Q17.14 binary point using the
+  per-tensor requant scale the kernel already applies. Exact — no rounding.
+- **Float modes (FP8 / BF16, training-adjacent):**
+  `acc_word = rne( f32_to_fixed(data[e], 2^(14 − blk_exp)) )`, saturating to
+  ±(2^17 − 2^−14). `rne` = round-nearest-even. NaN/Inf → saturate to full-scale
+  **and** set `TUSER.nan_inf` (§7). The reference exponent `blk_exp`:
+  - **`VX_CFG_TCU_MX_ENABLE = true`:** use Ten-Four's hardware microscale scale
+    factors (`VX_tcu_mx_scale.sv` → per-row `sf_a`, per-col `sf_b`), combined for
+    PE `e`. This is the "microscale block exponent."
+  - **MX disabled (shipped default):** there is no hardware microscale exponent.
+    The shim derives its own block exponent from the fp32 magnitudes of the
+    record's lanes (a max-exponent reduction — the same operation the pilot does
+    in §5.1, run earlier). The Vortex-side exponent is then an optional hint; the
+    pilot's BFP pass (§5) is authoritative.
 
 ### 4.3 Precision modes
 
@@ -277,21 +299,29 @@ optical link (§2.3 step 4).
 
 ### 6.1 Channel
 
-`M_AXIS_CS` — one master per compute unit, AXI4-Stream, `ACLK` = Vortex core
-clock, `ARESETn` = core reset.
+`M_AXIS_CS` — **one master per Vortex TCU block**, tapped off
+`VX_tcu_core.result_if` (`BLOCK_SIZE = VX_CFG_ISSUE_WIDTH` blocks per core;
+`vortex_integration_notes.md` §3). AXI4-Stream, `ACLK` = Vortex core clock,
+`ARESETn` = core reset. The shim (§4.2) sits between `result_if` and this master.
 
 | Signal | Width | Notes |
 |--------|-------|-------|
-| `TVALID` / `TREADY` | 1 / 1 | standard handshake; `TREADY` from the pilot FIFO write side |
+| `TVALID` / `TREADY` | 1 / 1 | standard handshake; `TVALID` follows `result_if.valid` (gated to tile-final — §9); `TREADY` from the pilot FIFO write side, wired back to `result_if.ready` |
 | `TDATA` | 32 | `acc_word`, Q17.14 (§4) |
 | `TLAST` | 1 | end of a lane's contribution to one reduction. Baseline: 1 beat per reduction, `TLAST` always 1. Reserved > 1 beat for a future wide-vector lane. |
-| `TID` | `$clog2(N)` | source compute-unit id; maps to the existing `ACTIVE_TID` / crossbar routing domain in `registers.yaml` |
-| `TUSER` | 6 | `[5] nan_inf`, `[4] clamp_src` (shim already saturated), `[3:0] cell_lane` — which lane of which 8-input cell this beat targets |
+| `TID` | `$clog2(N)` | source unit / TCU-block id; maps to the existing `ACTIVE_TID` / crossbar routing domain in `registers.yaml`. Derive from `header.wid` / block index. |
+| `TUSER` | 6 | `[5] nan_inf`, `[4] clamp_src` (shim already saturated), `[3:0] cell_lane` — which lane of which 8-input cell this beat targets (from the PE index `e` / `header`) |
 | `TKEEP` | 4 | all ones (full word); present for IP-packager compliance only |
 
-`TDEST` is not used at this boundary — one physical stream per unit already
+`TDEST` is not used at this boundary — one physical stream per TCU block already
 selects the destination FIFO. A shared-stream variant (PCIe DMA producers) uses
 `TDEST` = FIFO index and is allowed but not the Vortex path.
+
+Because `result_if` carries `NUM_TCU_LANES` (= `NUM_THREADS`) resolved words per
+beat, the shim either fans the beat out to `NUM_TCU_LANES` lane FIFOs (one
+optical lane per thread lane, identity map when `NUM_THREADS = 8`) or selects the
+PE index that maps to this cell's lane. Pin the mapping in the integration build
+(§9).
 
 ### 6.2 Framing and the `buf_full` / `buf_clear` semantics
 
@@ -323,10 +353,16 @@ required or assumed.
 
 `M_AXIS_CS.TREADY` deasserts when the lane FIFO is full (pilot has not consumed
 the previous record — e.g. a stalled reduction, or a slow peer lane holding the
-halt gate). The compute unit blocks on the stream write, which is the intended
-buffer-halt behaviour: no data is dropped, and the buffer-halt latency bound
-(paper §3.4) still holds because it is set by the *slowest producer*, not by the
-FIFO.
+halt gate). `TREADY` wires back to `VX_tcu_core.result_if.ready`; the compute
+unit blocks on the stream write, which is the intended buffer-halt behaviour: no
+data is dropped, and the buffer-halt latency bound (paper §3.4) still holds
+because it is set by the *slowest producer*, not by the FIFO.
+
+`VX_tcu_core` already has a LUTRAM **result landing queue**
+(`VX_tcu_core.sv:729-746`) that parks completed FEDP results behind a stalled
+consumer — its admission (`execute_if.ready`) stalls the *next* MMA uop rather
+than dropping a result. That queue is free upstream slack for our FIFO: a brief
+pilot stall is absorbed there before it backpressures the FEDP grid.
 
 ---
 
@@ -363,9 +399,15 @@ separately:
    Re-run the 18-assertion TB and the OOC timing check (guard the current WNS).
 3. **`greencoyote_top.sv`:** instantiate the per-lane dual-clock FIFOs and the
    `M_AXIS_CS` slave ports; expose `core_clk` as a second clock input.
-4. **Vortex integration shim** (in the Vortex tree, not `gcb-rtl`): accumulator
-   writeback tap → Q17.14 conversion (§4.2) → `M_AXIS_CS` master.
-5. **`mmi_tree_model.py`:** add the offset-binary `+n·2048` term and the BFP
+4. **Vortex integration shim** (in the Vortex tree, not `gcb-rtl`): tap
+   `VX_tcu_core.result_if` → fp32/int32 → Q17.14 conversion (§4.2) → `M_AXIS_CS`
+   master. Details and source references in `vortex_integration_notes.md` §5.
+5. **Vortex build configuration:** set `VX_CFG_EXT_TCU_ENABLE = true`, keep
+   `VX_CFG_TCU_TYPE = "TFR"`, enable `VX_CFG_TCU_FP8_ENABLE` /
+   `VX_CFG_TCU_INT8_ENABLE` for the target regimes, `VX_CFG_TCU_USE_DSP = 1` for
+   the U55C build; MX and WGMMA optional (`vortex_integration_notes.md` §6). The
+   shipped `VX_config.toml` runs the TCU off at toy dimensions.
+6. **`mmi_tree_model.py`:** add the offset-binary `+n·2048` term and the BFP
    `blk_exp` quantisation to `simulate_cell` so the model matches the datapath
    the bench will measure.
 
@@ -377,12 +419,21 @@ separately:
   to ±65 535 at unit scale. Confirm against the largest transformer layer /
   batch tile Vortex 3.0 will actually accumulate before a reduction; widen the
   integer part (Q19.12?) if a real workload exceeds it.
+- **Tile-final marker.** `M_AXIS_CS` must carry only the *last-K* MMA writeback
+  of an output tile (contract §6.2 = "one beat per reduction"). Confirm
+  `header.eop` is set only on that writeback in the integration config; if not,
+  filter on the WGMMA `is_last_uop` flag (needs `VX_CFG_TCU_WGMMA_ENABLE`) or a
+  kernel-level tag. `vortex_integration_notes.md` §2, §8.
 - **Wide-vector lanes.** Is one scalar per unit per reduction always sufficient,
   or will a unit ever contribute a short vector (e.g. grouped heads) in one
   record? Baseline says scalar; §6.1 `TLAST` and §6.2 leave room.
-- **Shared vs. per-unit stream for the Vortex path.** Per-unit is specified here.
-  Revisit if the Vortex 3.0 cluster exposes a single wide AXI-Stream egress
-  rather than one per unit.
+- **Per-block stream wiring (resolved: per-block).** The tap is
+  `VX_tcu_core.result_if`, one per TCU block. For an N-input optical cell, route
+  N such taps to N lane FIFOs; confirm `VX_socket.sv` / `VX_cluster.sv` expose
+  them or add a small egress arbiter (`vortex_integration_notes.md` §8).
+- **Thread-lane → optical-lane map.** `result_if.data.data[]` has
+  `NUM_TCU_LANES = NUM_THREADS` words; the 8-input cell wants 8. Identity when
+  `NUM_THREADS = 8`; otherwise pin the map explicitly.
 - **Stochastic-rounding entropy.** Per-lane LFSR is cheap but correlated across
   reductions at the LFSR period. Adequate? Or reseed per tile from a pilot
   counter.
