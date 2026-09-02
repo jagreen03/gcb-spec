@@ -89,7 +89,7 @@ function* with fiber components:
 | Fiber management tray / breakout enclosure | `[bench-build]` | — | 1 / 1 | $600 | $600 | |
 | **Subtotal — optical mesh / combiner (target 8-input)** | | | | | **≈ $17,940** | incl. optional cascade pair |
 
-*Minimum tier (8× tap, 2 global VOA, 2× 4×1 comb, sleeves/cords): ≈ **$6,600**.*
+*Minimum tier (4× tap, 2 global VOA, 2× 4×1 comb, sleeves/cords): ≈ **$6,600**.*
 
 **Combiner characterization gate** (`bench_emulation_parameters.md` §3.1): launch
 a known power into each input in turn on **each** tree, record per-input loss,
