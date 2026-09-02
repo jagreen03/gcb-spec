@@ -156,6 +156,14 @@ each (one time-shared combinational converter), and serialises them as
 cfg_tid`. Non-tile-final beats are accepted and dropped. A `2·NUM_LANES`-deep
 egress FIFO decouples the serialiser from `M_AXIS_CS.TREADY`.
 
+The conversion arithmetic is factored into the dependency-free package
+`VX_tcu_q1714_convert_pkg` and verified bit-exact against an independent
+real/longint reference by `gcb-rtl/integration/tb/tb_VX_tcu_q1714_convert.sv`
+(~1.8M vectors, RNE + TRUNC, `errors=0`). That test caught one real bug: on the
+sign-magnitude fp path, `TRUNC` truncated the *magnitude* (toward zero) instead
+of flooring toward −∞ — now consistent with the int path (`>>>`) and the pilot's
+`ROUND_MODE=00`.
+
 ### 5.1 Integer modes (INT8 / INT4 inference)
 `data[e]` is already an integer (`fmt_d[4] == 1`). `acc_word =
 sat32( rne( $signed(int32) <<< (14 − int_prescale) ) )`, where `int_prescale` is
