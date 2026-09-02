@@ -143,14 +143,25 @@ typedef struct packed {                       // tcu_header_t
 
 ## 5. The fp32/int32 → Q17.14 shim
 
-Placement: a small block **on the Vortex core clock**, tapping
-`VX_tcu_core.result_if` (or a fanout of it), feeding the `M_AXIS_CS` master. It
-does not talk to other units or other lanes.
+Placement: a small block **on the Vortex core clock**, downstream of
+`VX_tcu_tilefinal_tag` (which supplies `is_tile_final` and `fmt_d` aligned to
+`result_if.valid`), feeding the `M_AXIS_CS` master. It does not talk to other
+units or other lanes.
+
+Draft reference implementation: **`gcb-rtl/integration/VX_tcu_shim_q1714.sv`**.
+For each tile-final result beat it latches the `NUM_LANES` PE words, converts
+each (one time-shared combinational converter), and serialises them as
+`NUM_LANES` AXI4-Stream beats on one `M_AXIS_CS` master —
+`TUSER = {nan_inf, clamp, cell_lane[3:0]}`, `TLAST` on the last lane, `TID =
+cfg_tid`. Non-tile-final beats are accepted and dropped. A `2·NUM_LANES`-deep
+egress FIFO decouples the serialiser from `M_AXIS_CS.TREADY`.
 
 ### 5.1 Integer modes (INT8 / INT4 inference)
-`data[e]` is already an integer. `acc_word = sat32(int_result)` placed at the
-Q17.14 binary point using the per-tensor requant scale the kernel already
-applies. Exact — no rounding in the shim.
+`data[e]` is already an integer (`fmt_d[4] == 1`). `acc_word =
+sat32( rne( $signed(int32) <<< (14 − int_prescale) ) )`, where `int_prescale` is
+the per-tensor requant right-shift — drive it from a CSR so a large
+K-accumulated INT8 sum lands inside Q17.14 (a plain `<<< 14` overflows for K
+beyond a few dozen; see §9 "Q17.14 range"). Exact when `int_prescale ≤ 14`.
 
 ### 5.2 Float modes (FP8 / BF16 inference, training-adjacent)
 `acc_word = rne( f32_to_fixed(data[e], 2^(14 − blk_exp)) )`, saturating to
