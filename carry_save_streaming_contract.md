@@ -1,6 +1,6 @@
 # Carry-save streaming contract — Vortex accumulator → optical pilot
 
-**Contract version:** 0.3.0 (draft)
+**Contract version:** 0.3.1 (draft)
 **Status:** proposed. Defines the logical boundary only. The pilot-side register
 and RTL changes in §8 are **required follow-on work and are not yet implemented**
 — today's `greencoyote_photonic_sequencer.sv` still truncates `buf_data[i][11:0]`
@@ -13,6 +13,10 @@ integration shim (compute side).
 3.0); `gcb-papers/p1-cascaded-reduction/optical_reduction_paper.md` §3.4, §4.1.
 
 **Changelog.**
+- 0.3.1 — tile-final marker resolved: source-verified that `header.eop` /
+  `is_last_uop` do not work; the marker is `step_k == BLOCK_K_STEPS-1`, piped
+  past the FEDP latency. §8 shim item and §9 bullet updated;
+  `vortex_integration_notes.md` §8 carries the determination + SVA/directed check.
 - 0.3.0 — reconciled against the cloned Vortex 3.0 tree (`hw/rtl/tcu/`, type
   `TFR`). Tap point fixed at `VX_tcu_core.result_if` **per TCU block**; the wire
   word is native **IEEE fp32 / int32**, not Q17.14 (the shim converts — §4.2);
@@ -401,7 +405,11 @@ separately:
    `M_AXIS_CS` slave ports; expose `core_clk` as a second clock input.
 4. **Vortex integration shim** (in the Vortex tree, not `gcb-rtl`): tap
    `VX_tcu_core.result_if` → fp32/int32 → Q17.14 conversion (§4.2) → `M_AXIS_CS`
-   master. Details and source references in `vortex_integration_notes.md` §5.
+   master. `result_if` fires once per compute uop (every K-step writes back);
+   the shim must gate `TVALID` on a **tile-final marker derived as
+   `step_k == BLOCK_K_STEPS-1`** — `header.eop` and `is_last_uop` do **not**
+   work. Derivation, elaborated numbers, RTL hook, and the SVA + directed check
+   are in `vortex_integration_notes.md` §8.
 5. **Vortex build configuration:** set `VX_CFG_EXT_TCU_ENABLE = true`, keep
    `VX_CFG_TCU_TYPE = "TFR"`, enable `VX_CFG_TCU_FP8_ENABLE` /
    `VX_CFG_TCU_INT8_ENABLE` for the target regimes, `VX_CFG_TCU_USE_DSP = 1` for
@@ -419,11 +427,15 @@ separately:
   to ±65 535 at unit scale. Confirm against the largest transformer layer /
   batch tile Vortex 3.0 will actually accumulate before a reduction; widen the
   integer part (Q19.12?) if a real workload exceeds it.
-- **Tile-final marker.** `M_AXIS_CS` must carry only the *last-K* MMA writeback
-  of an output tile (contract §6.2 = "one beat per reduction"). Confirm
-  `header.eop` is set only on that writeback in the integration config; if not,
-  filter on the WGMMA `is_last_uop` flag (needs `VX_CFG_TCU_WGMMA_ENABLE`) or a
-  kernel-level tag. `vortex_integration_notes.md` §2, §8.
+- **Tile-final marker** *(determined — `vortex_integration_notes.md` §8).*
+  `M_AXIS_CS` must carry only the *last-K* MMA writeback of an output tile
+  (contract §6.2 = "one beat per reduction"). Source-verified: `header.eop` is a
+  SIMD-packet flag (not tile-final) and `op_args.tcu.is_last_uop` is WGMMA-only
+  and marks just one sub-tile — **neither works**. The marker is
+  `step_k == BLOCK_K_STEPS-1` (`BLOCK_K_STEPS = is_wgmma ? TCU_WG_K_STEPS :
+  TCU_K_STEPS`), piped past the FEDP latency and surfaced on a `result_if`
+  sideband. Open part: run the §8.4 SVA + directed check against the chosen
+  `VX_CFG_*` to confirm `BLOCK_K_STEPS` and the tile-final beat count.
 - **Wide-vector lanes.** Is one scalar per unit per reduction always sufficient,
   or will a unit ever contribute a short vector (e.g. grouped heads) in one
   record? Baseline says scalar; §6.1 `TLAST` and §6.2 leave room.

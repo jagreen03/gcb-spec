@@ -209,24 +209,139 @@ once the flag is set.
 
 ---
 
-## 8. Open items to confirm on the integration config
+## 8. Tile-final marker: determination and check
 
-1. **Tile-final marker.** Confirm `header.eop` is set only on the last-K
-   writeback of an output tile (vs. every MMA uop). If not, the shim filters on
-   the WGMMA `is_last_uop` (needs `VX_CFG_TCU_WGMMA_ENABLE`) or the kernel tags
-   it. Contract §6.2 "one beat = one reduction" assumes the stream is already
-   tile-final.
-2. **Per-block vs per-SM stream.** `result_if` is per `VX_tcu_core` (per issue
+Contract §6.2 ("one beat = one reduction") requires `M_AXIS_CS` to carry **only
+the fully-accumulated C tile**, not every K-step. Determination below is
+source-verified; the check is what the integration team runs against its own
+`VX_CFG_*` before trusting the shim.
+
+### 8.1 Determination — there is no ready-made marker; use `step_k`
+
+`VX_tcu_core.result_if` fires **once per compute uop** — `fedp_enqueue =
+execute_fire && !is_wgmma_setup` (`VX_tcu_core.sv:148`), `mdata_push =
+fedp_enqueue` (`:257`), `fedp_delay_pipe` shifts one bit per uop (`:220-229`). A
+single `INST_TCU_WMMA` expands to `TCU_UOPS = TCU_M_STEPS · TCU_N_STEPS ·
+TCU_K_STEPS` uops (`VX_tcu_pkg.sv:171`; `uop_count = TCU_UOPS`,
+`VX_tcu_uops.sv:232`), so one instruction produces `TCU_UOPS` result beats.
+
+Candidate markers, all rejected:
+
+| Candidate | Verdict | Evidence |
+|-----------|---------|----------|
+| `header.sop` / `header.eop` | **Not tile-final.** Generic execute-pipeline SIMD-packet start/end flags; `mdata_queue_in = execute_if.data.header` passes them straight through (`VX_tcu_core.sv:156`). They mark SIMD sub-packet boundaries, unrelated to K-stepping. | `VX_define.vh:573-587` (`sop`/`eop` in the generic header); `VX_tcu_core.sv:156,277` |
+| `op_args.tcu.is_last_uop` | **WGMMA-only and insufficient.** Assigned only inside `if (is_wgmma)` (`VX_tcu_uops.sv:419-427`); never set for plain WMMA. Even under WGMMA it flags only `uop_idx == uop_count-1` — the *single* last (m,n) sub-tile at last-k, not every sub-tile's last-k. Also not carried on `result_if` (only the header rides `mdata_queue`, not `op_args`). | `VX_tcu_uops.sv:421-426`; `VX_tcu_core.sv:154-156,277` |
+| `fu_unlock` | WGMMA lockstep release, same single-uop limitation as `is_last_uop`. | `VX_tcu_uops.sv:422` |
+
+**The usable primitive is `step_k`.** Every uop (WMMA and WGMMA) carries
+`op_args.tcu.step_k = 4'(k_index)` (`VX_tcu_uops.sv:396,408`), visible in the core
+as `wire [3:0] step_k = execute_if.data.op_args.tcu.step_k` (`VX_tcu_core.sv:136`,
+currently `UNUSED_VAR` at `:159`). Loop order is **K-outermost** — non-WGMMA
+`k_index = eff_ctr[LG_N+LG_M +: LG_K]` (`VX_tcu_uops.sv:268`); WGMMA dense is
+"m inner → n middle → k outer" (`VX_tcu_uops.sv:174`). So the last
+`TCU_M_STEPS · TCU_N_STEPS` uops of an instruction all have `step_k` at its max,
+one per (m,n) sub-tile, each the final accumulate for that sub-tile's C
+registers. The tile-final condition is:
+
+```
+is_tile_final = (step_k == BLOCK_K_STEPS - 1)
+  where BLOCK_K_STEPS = is_wgmma ? TCU_WG_K_STEPS : TCU_K_STEPS
+```
+
+### 8.2 Elaborated numbers — shipped `VX_config.toml` (`NUM_THREADS = 4`)
+
+| Param | Value | Source |
+|-------|-------|--------|
+| `TCU_NT`, `TCU_NR` | 4, 8 | `VX_tcu_pkg.sv:47,52` |
+| `TCU_TILE_CAP` = NT·NR | 32 | `:57` |
+| `TCU_TILE_M` / `TCU_TILE_N` | 8 / 4 | `:62-63` (EM=3, EN=2) |
+| `TCU_TILE_K` = CAP / max(M,N) | 4 | `:64` |
+| `TCU_TC_M` / `TCU_TC_N` / `TCU_TC_K` | 2 / 2 / 2 | `:72-74` (BLOCK_CAP=NT=4) |
+| `TCU_M_STEPS` / `TCU_N_STEPS` / `TCU_K_STEPS` | 4 / 2 / 2 | `:77-79` |
+| `TCU_UOPS` = M·N·K | **16** | `:171` |
+| result beats per WMMA instr | **16** | one per uop |
+| tile-final beats (`step_k==1`) | **8** (= M_STEPS·N_STEPS) | last 8 uops |
+
+A real integration build (larger `NUM_THREADS`, FP8/INT8 on) changes every
+number; re-derive `BLOCK_K_STEPS` from the elaborated package and feed it to the
+check.
+
+### 8.3 The RTL hook (shim side, in the Vortex tree)
+
+`step_k` is not currently piped past the FEDP latency. The shim adds, in
+`VX_tcu_core` (or a thin wrapper on `result_if`):
+
+1. `wire is_tf_in = (step_k == BLOCK_K_STEPS-1) && !is_wgmma_setup;`
+2. pipe it beside the header: widen `mdata_queue` to
+   `$bits(tcu_header_t)+1`, pack `{is_tf_in, header}`; **and** a parallel
+   `is_tf_pipe` shift register clocked identically to `fedp_delay_pipe`
+   (`VX_tcu_core.sv:220-229`) for the landq-bypass path.
+3. surface `is_tile_final` as a 1-bit `result_if` sideband (or straight into the
+   shim's `M_AXIS_CS.TUSER`).
+4. `M_AXIS_CS.TVALID = result_if.valid && is_tile_final` (the setup-uop exclusion
+   is already handled by `!is_wgmma_setup`). Non-final beats are consumed
+   (`result_if.ready` held high) but not streamed — the RF still gets every
+   writeback.
+
+### 8.4 The check — run against the integration config
+
+**SVA (bind into `VX_tcu_core`), per accepted WMMA instruction:**
+
+```systemverilog
+// A1: result_if fires exactly TCU_UOPS times between one execute_fire of a
+//     new uuid and the next (no coalescing, no extra beats).
+// A2: exactly TCU_M_STEPS*TCU_N_STEPS of those beats have step_k == K_STEPS-1.
+// A3: is_tile_final (8.3) is high on exactly those beats and nowhere else.
+// A4: for every (step_m,step_n) pair, the beat with step_k==K_STEPS-1 is the
+//     LAST result beat carrying that (step_m,step_n) in the instruction
+//     (i.e. it is the final accumulator writeback for that sub-tile).
+// A5: header.eop must NOT be equal to is_tile_final on every beat
+//     (regression guard: if a future rebase repurposes eop, this fires).
+property p_tilefinal_count;
+  @(posedge clk) disable iff (reset)
+  (new_instr |-> ##[1:$] (beats_seen == TCU_UOPS && tf_seen == M_STEPS*N_STEPS));
+endproperty
+assert property (p_tilefinal_count);
+```
+
+**Directed test (C or driver):** issue a single `wmma` with A, B, C set so the
+exact integer result per (m,n) is known (e.g. A = all-ones INT8, B = identity,
+C = 0 → D[m][n] = TILE_K). Capture `M_AXIS_CS`; assert:
+
+1. beat count on the stream = `M_STEPS·N_STEPS` (tile-final only), **not**
+   `TCU_UOPS`;
+2. each streamed `acc_word`, de-scaled, equals the known D[m][n];
+3. no beat carries a partial (`step_k < K_STEPS-1`) value — cross-check against a
+   second run that taps raw `result_if` and counts `TCU_UOPS` beats.
+
+**Config sweep:** run the SVA build for `{WGMMA off, WGMMA on}` ×
+`{NUM_THREADS = 8, 16}` × `{FP8, INT8}` and confirm `BLOCK_K_STEPS` and the
+`tf_seen` count track the elaborated package each time. If `TCU_K_STEPS == 1`
+for a chosen config (TILE_K == TC_K), **every** uop is tile-final and the marker
+degenerates to `!is_wgmma_setup` — valid, but note it so the shim isn't
+"filtering" nothing.
+
+### 8.5 Result feeds back to the contract
+
+`carry_save_streaming_contract.md` §9 "tile-final marker" bullet and §8 shim
+item are updated to name `step_k == BLOCK_K_STEPS-1` (not `header.eop`, not
+`is_last_uop`) as the derivation, with this section as the reference.
+
+---
+
+## 9. Other open items to confirm on the integration config
+
+1. **Per-block vs per-SM stream.** `result_if` is per `VX_tcu_core` (per issue
    slot). For an N-unit optical cell we need N such taps routed to N lane FIFOs —
    confirm the cluster wiring (`VX_socket.sv` / `VX_cluster.sv`) exposes them or
    add a small egress arbiter. This **resolves the contract §9 "shared vs
    per-unit" open question toward per-block.**
-3. **`NUM_TCU_LANES` vs optical lane count.** `data[]` has `NUM_TCU_LANES`
+2. **`NUM_TCU_LANES` vs optical lane count.** `data[]` has `NUM_TCU_LANES`
    (= `NUM_THREADS`) words; the 8-input optical cell wants 8. Map thread-lane →
    optical-lane explicitly (identity if `NUM_THREADS = 8`).
-4. **Q17.14 integer range** (contract §9) — check the largest FP8/INT8 tile sum
+3. **Q17.14 integer range** (contract §9) — check the largest FP8/INT8 tile sum
    Vortex accumulates before a reduction against ±65 535; widen to Q19.12 if
    exceeded.
-5. **MX combine rule.** If `VX_CFG_TCU_MX_ENABLE` is used, pin down how
+4. **MX combine rule.** If `VX_CFG_TCU_MX_ENABLE` is used, pin down how
    `sf_a[row]` and `sf_b[col]` compose into the per-PE block exponent (add vs
    max) against `VX_tcu_mx_scale.sv` semantics.
