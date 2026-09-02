@@ -210,7 +210,10 @@ def emit_sv(spec: dict) -> str:
         "",
         "package greencoyote_regmap_pkg;",
         "",
-        f'    localparam string MAP_VERSION = "{spec["map_version"]}";',
+        # Untyped localparam (not `string`) so the package elaborates under
+        # simulators without SV string support (e.g. Icarus Verilog 11);
+        # still prints correctly with %s and is a legal Verilog constant.
+        f'    localparam MAP_VERSION = "{spec["map_version"]}";',
         f"    localparam int    ADDR_WIDTH  = {aw};",
         f"    localparam logic [31:0] UNMAPPED_READ = 32'h{space['unmapped_read']:08X};",
         "",
