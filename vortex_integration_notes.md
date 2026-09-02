@@ -268,20 +268,32 @@ check.
 
 ### 8.3 The RTL hook (shim side, in the Vortex tree)
 
-`step_k` is not currently piped past the FEDP latency. The shim adds, in
-`VX_tcu_core` (or a thin wrapper on `result_if`):
+`step_k` is not currently piped past the FEDP latency. Draft reference
+implementation: **`gcb-rtl/integration/VX_tcu_tilefinal_tag.sv`** — an inline
+wrapper placed around `VX_tcu_core` in `VX_tcu_unit`'s `g_blocks` loop
+(`execute_if` / `result_if` face `VX_tcu_unit`; `execute_core_if` /
+`result_core_if` face the wrapped core). It:
 
-1. `wire is_tf_in = (step_k == BLOCK_K_STEPS-1) && !is_wgmma_setup;`
-2. pipe it beside the header: widen `mdata_queue` to
-   `$bits(tcu_header_t)+1`, pack `{is_tf_in, header}`; **and** a parallel
-   `is_tf_pipe` shift register clocked identically to `fedp_delay_pipe`
-   (`VX_tcu_core.sv:220-229`) for the landq-bypass path.
-3. surface `is_tile_final` as a 1-bit `result_if` sideband (or straight into the
-   shim's `M_AXIS_CS.TUSER`).
-4. `M_AXIS_CS.TVALID = result_if.valid && is_tile_final` (the setup-uop exclusion
-   is already handled by `!is_wgmma_setup`). Non-final beats are consumed
-   (`result_if.ready` held high) but not streamed — the RF still gets every
-   writeback.
+1. snoops the execute side and reconstructs the core's own predicates —
+   `tag_bit_in = (step_k == k_last)` with
+   `k_last = is_wgmma ? K_LAST_WG : K_LAST_NONWG`, and
+   `tag_push = exe_fire && ~is_setup` (= `VX_tcu_core` `fedp_enqueue`,
+   `VX_tcu_core.sv:148`);
+2. reconstructs `setup_valid_r` (`VX_tcu_core.sv:206-218`) so it pops on exactly
+   `fedp_result_fire` (`:204`), and pushes the 1-bit tag into a **mirror FIFO of
+   the same depth and `OUT_REG` as `mdata_queue`** (`TAG_QUEUE_DEPTH =
+   1 << clog2(VX_CFG_TCU_LATENCY + 1)`) — so the tag head tracks
+   `result_if.data.header` beat-for-beat, covering both the direct-`fedp_done`
+   and landing-queue-parked paths without replicating `fedp_delay_pipe`;
+3. drives `is_tile_final` (aligned to `result_if.valid`); setup-uop result beats
+   force it to 0 and neither push nor pop the tag FIFO;
+4. the shim then sets `M_AXIS_CS.TVALID = result_if.valid && is_tile_final`;
+   non-final beats are consumed (`result_if.ready` held high) but not streamed —
+   the RF still gets every writeback.
+
+Carries `SIMULATION` assertions mirroring §8.4 (empty-FIFO-on-compute-beat,
+overflow, an optional `header.eop != is_tile_final` regression latch under
+`VX_TCU_TILEFINAL_EOP_GUARD`, and a `TCU_K_STEPS==1` degenerate-case note).
 
 ### 8.4 The check — run against the integration config
 
