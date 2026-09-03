@@ -10,9 +10,6 @@ Part of the GreenCoyote-Bay photonic inference fabric (ODIN_Bridge).
 - `architecture.md` — architectural log
 - `bench_emulation_parameters.md` — Task 3 discrete reduction-cell component
   parameters, tied to `gcb-rtl/sim/mmi_tree_model.py`
-- `task3_physical_bom.md` — Task 3 bench bill of materials (ratiometric two-tap
-  build): lasers/drivers, optical mesh/combiner, receivers/ADCs, with COTS part
-  estimates and Phase I cost tiers
 - `carry_save_streaming_contract.md` — logical streaming contract for the Vortex
   3.0 accumulator → optical pilot boundary (`buf_data` / `buf_full` format, AXI
   4-Stream handshake, block-floating-point 32→12-bit scaling)
