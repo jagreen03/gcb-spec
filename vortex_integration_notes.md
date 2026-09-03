@@ -352,6 +352,18 @@ for a chosen config (TILE_K == TC_K), **every** uop is tile-final and the marker
 degenerates to `!is_wgmma_setup` — valid, but note it so the shim isn't
 "filtering" nothing.
 
+**Implementation (`gcb-rtl/integration/`):**
+- `tcu_tfr_config.sh` — the `VX_CFG_*` target: `VX_CFG_EXT_TCU_ENABLE`,
+  `VX_CFG_TCU_TYPE=TFR`, `VX_CFG_TCU_USE_DSP=1`, `VX_CFG_NUM_THREADS`, FP8/INT8,
+  optional WGMMA; sweep via `VX_TFR_THREADS` / `VX_TFR_FMT` / `VX_TFR_WGMMA`.
+- `VX_tcu_tilefinal_sva.sv` — A1–A5 as a bind-able checker module (bind line in
+  its header). Draft, authored from the §8 source cites; not yet elaborated.
+- `tb/run_tilefinal_check.sh` — sources the config, generates `VX_config`,
+  lints the tag wrapper + SVA against the real `hw/rtl/tcu` RTL, then (TODO) the
+  directed WMMA test and the sweep. Needs Verilator ≥ 5 **and** the `vortex`
+  sibling clone; exits 2 (SKIP) otherwise. Wired into `tb/ci.sh` as the
+  `tilefinal-sva` stage.
+
 ### 8.5 Result feeds back to the contract
 
 `carry_save_streaming_contract.md` §9 "tile-final marker" bullet and §8 shim
