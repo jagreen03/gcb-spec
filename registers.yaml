@@ -27,13 +27,17 @@
 # (resolved).
 # =============================================================================
 
-map_version: "0.3.0"
+map_version: "0.4.0"
+# 0.4.0 -- REDUCTION_CTRL.ROUND_MODE[12:11] and new RO BLK_SCALE_STATUS (0xAC)
+#          for the pilot block-floating-point NORMALIZE pass
+#          (carry_save_streaming_contract.md 5.1-5.4, 8.1). Additive.
+# 0.3.0 -- prior baseline.
 
 module: greencoyote_pilot_regs
 
 address_space:
   base: 0x00
-  end: 0xA8
+  end: 0xAC
   stride: 4
   addr_width: 8          # widened in gcb-rtl 657b473 -- see DEFECT-001 (resolved)
   unmapped_read: 0xDEADBEEF
@@ -160,7 +164,10 @@ registers:
       - { name: FIRE_DONE,   bits: [9, 9],   access: ro, source: fire_done }
       - { name: AUTO_FIRE,   bits: [10, 10], access: rw, reset: 0, signal: r_auto_fire, output: auto_fire,
           description: "When set, an internal FIRE strobe is generated on the RISING EDGE of queue_full while !mode_active (edge-detected via queue_full_prev, gcb-rtl 657b473). A still-full buffer does not re-arm a new reduction each cycle. The sequencer consumes only the fire pulse; it no longer level-triggers on auto_fire && queue_full." }
-      - { name: RSVD,        bits: [31, 11], access: rsvd }
+      - { name: ROUND_MODE,  bits: [12, 11], access: rw, reset: 0b01, signal: r_round_mode, output: round_mode,
+          enum: { 0: TRUNC, 1: RNE, 2: STOCHASTIC, 3: RSVD },
+          description: "Rounding applied inside the pilot NORMALIZE block-floating-point pass (carry_save_streaming_contract.md 5.2). 00 truncate (lowest cost, short cascades); 01 round-nearest-even (reset default, inference); 10 stochastic (training-adjacent / deep cascades, per-lane LFSR dither); 11 reserved. Consumed by greencoyote_photonic_sequencer.sv per the 8.2 rewrite." }
+      - { name: RSVD,        bits: [31, 13], access: rsvd }
 
   - name: IRQ_CTRL
     offset: 0x14
@@ -575,3 +582,29 @@ registers:
       - { name: ALL_TIDS_SNAPSHOTTED, bits: [17, 17], access: ro, source: all_tids_snapshotted }
       - { name: OMB_FLUSH_DONE,       bits: [18, 18], access: ro, source: omb_flush_done }
       - { name: RSVD,                 bits: [31, 19], access: rsvd }
+
+  # ===========================================================================
+  # INFERENCE DOMAIN (continued)  0xAC
+  # ===========================================================================
+  # Appended here, not in the 0x00-0x14 inference block, which is full. Reports
+  # the result of the pilot NORMALIZE block-floating-point pass that performs
+  # the 32-bit-accumulator -> 12-bit-DAC compression
+  # (carry_save_streaming_contract.md 5.1-5.4, 8.1). RTL support lands with the
+  # 8.2 greencoyote_photonic_sequencer.sv rewrite; today the register reads 0.
+
+  - name: BLK_SCALE_STATUS
+    offset: 0xAC
+    domain: inference
+    access: ro
+    description: >
+      Block-floating-point scaling telemetry from the most recent reduction
+      fire. Host-side reconstruction and debug of the 32-to-12 bit compression
+      (carry_save_streaming_contract.md 5.1-5.4).
+    fields:
+      - { name: BLK_EXP,      bits: [4, 0],   access: ro, source: blk_exp_last,
+          description: "Shared block exponent applied to the last reduction (5.1 step 2). Post-ADC results are scaled back by <<< BLK_EXP (5.4). Range 0-31." }
+      - { name: CLAMP,        bits: [5, 5],   access: ro, source: blk_scale_clamp,
+          description: "Sticky. Set when any lane's block-scaled code was clamped (5.1 step 3) or the shim saturated a finite accumulator value (7). Feeds the cal_err path. Clear semantics land with the 8.2 sequencer rewrite." }
+      - { name: LANE_BIAS_N,  bits: [9, 6],   access: ro, source: lane_bias_n,
+          description: "Active lane count (queue_depth) latched at the last fire. The post-ADC de-bias subtracts LANE_BIAS_N * 2048 (5.3), not 8 * 2048 -- absent lanes are not offset-biased." }
+      - { name: RSVD,         bits: [31, 10], access: rsvd }
