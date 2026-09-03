@@ -353,16 +353,22 @@ degenerates to `!is_wgmma_setup` — valid, but note it so the shim isn't
 "filtering" nothing.
 
 **Implementation (`gcb-rtl/integration/`):**
-- `tcu_tfr_config.sh` — the `VX_CFG_*` target: `VX_CFG_EXT_TCU_ENABLE`,
-  `VX_CFG_TCU_TYPE=TFR`, `VX_CFG_TCU_USE_DSP=1`, `VX_CFG_NUM_THREADS`, FP8/INT8,
-  optional WGMMA; sweep via `VX_TFR_THREADS` / `VX_TFR_FMT` / `VX_TFR_WGMMA`.
-- `VX_tcu_tilefinal_sva.sv` — A1–A5 as a bind-able checker module (bind line in
-  its header). Draft, authored from the §8 source cites; not yet elaborated.
-- `tb/run_tilefinal_check.sh` — sources the config, generates `VX_config`,
-  lints the tag wrapper + SVA against the real `hw/rtl/tcu` RTL, then (TODO) the
-  directed WMMA test and the sweep. Needs Verilator ≥ 5 **and** the `vortex`
-  sibling clone; exits 2 (SKIP) otherwise. Wired into `tb/ci.sh` as the
-  `tilefinal-sva` stage.
+- `tcu_tfr_config.sh` — the `VX_CFG_*` target: `VX_CFG_XLEN=32`,
+  `VX_CFG_EXT_TCU_ENABLE`, `VX_CFG_TCU_TYPE=TFR`, `VX_CFG_TCU_USE_DSP=1`,
+  `VX_CFG_NUM_THREADS`, FP8/INT8, optional WGMMA; sweep via `VX_TFR_THREADS` /
+  `VX_TFR_FMT` / `VX_TFR_WGMMA` / `VX_TFR_XLEN`.
+- `VX_tcu_tilefinal_sva.sv` — A1–A5 checker module (authored from the §8 source
+  cites). `VX_tcu_tilefinal_sva_bind.sv` binds it into every `VX_tcu_core`,
+  kept out of the vortex tree.
+- `tb/sim_main.cpp` — Verilator `--exe` driver: reset `VX_tcu_unit_top`, one
+  `INST_TCU_WMMA` dispatch, wait for commit; the bound SVA runs A1–A5 during it.
+- `tb/run_tilefinal_check.sh` — stages: 0 `gen_config` (resolve + emit
+  `VX_config.vh`/`VX_types.vh`), 1 SVA standalone lint, 2 tag-wrapper standalone
+  lint (PARTIAL), 3 `verilator --binary` of `VX_tcu_unit_top` + the bound SVA,
+  runs one WMMA. Stages 0/1/3 green on Verilator 5.032 + the `vortex` clone;
+  exits 2 (SKIP) without them. Wired into `tb/ci.sh` as `tilefinal-sva`.
+  **TODO:** the directed A=all-ones INT8 / B=identity / C=0 case + `M_AXIS_CS`
+  capture + the `{8,16}×{FP8,INT8}×{WGMMA}` sweep.
 
 ### 8.5 Result feeds back to the contract
 
