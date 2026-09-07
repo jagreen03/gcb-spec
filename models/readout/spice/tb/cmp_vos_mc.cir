@@ -1,0 +1,55 @@
+* Vos mismatch Monte Carlo -- ASAP7 preamp + input-offset-storage auto-zero.
+*  Per-device Vth offsets injected as series gate sources (Vm1..Vm4), drawn
+*  ~ N(0, sigma_vth) with sigma_vth = A_VT / sqrt(W*L).
+*     A_VT = 2.0 mV*um   ASSUMED PUBLISHED-FinFET PROXY (Pelgrom)
+*  Input pair nfin=8 L=24n -> W*L = 0.01354 um^2 -> sigma_vth = 17.2 mV/device.
+*  Load pair nfin=8 L=40n -> W*L = 0.02257 um^2 -> sigma_vth = 13.3 mV/device
+*     (load mismatch referred to input /gain, small).
+*  AZ: during phi_az the inputs are shorted to VCM and C_az samples A*Vos;
+*  the residual at the crossing is the MEASURED input-referred offset.
+.include MODELFILE
+.param VDD=0.8 ITAIL=50u VCM=0.45 RL=16000 CAZ=300f VSIG=0.45
+.param SVT_IN=17.2m SVT_LD=13.3m
+Vdd vdd 0 {VDD}
+Vcm vcm 0 {VCM}
+* falling ramp 4.2 mV/ns through VSIG
+Vramp nramp 0 pwl 0 {VSIG+0.063} 1n {VSIG+0.063} 31n {VSIG-0.063} 60n {VSIG-0.063}
+* AZ phase: high 0..6 ns
+Vaz paz 0 pwl 0 1 6n 1 6.05n 0
+Saz1 xip vcm paz 0 sw
+Saz2 xin vcm paz 0 sw
+.model sw sw vt=0.5 vh=0.05 ron=150 roff=1e12
+* signal routing: after AZ, ramp -> xip, DC VSIG -> xin
+Rr nramp xip 200
+Vs2 xin 0 {VSIG}
+* Pelgrom series sources (harness sets VOS1..VOS4 per draw)
+.param VOS1=0 VOS2=0 VOS3=0 VOS4=0
+Vm1 xip gp {VOS1}
+Vm2 xin gn {VOS2}
+* preamp
+Iref nref 0 dc {ITAIL}
+Ntd nref nref 0 0 nmos_lvt nfin=12 l=40n
+Nt  tail nref 0 0 nmos_lvt nfin=12 l=40n
+N1 op gp tail 0 nmos_lvt nfin=8 l=24n
+N2 on gn tail 0 nmos_lvt nfin=8 l=24n
+Vm3 vdd lp {VOS3}
+Vm4 vdd ln {VOS4}
+RL1 lp op {RL}
+RL2 ln on {RL}
+* AZ caps preamp out -> latch in, latch side to VCM during AZ
+Caz1 op lip {CAZ}
+Caz2 on lin {CAZ}
+Sazl1 lip vcm paz 0 sw
+Sazl2 lin vcm paz 0 sw
+Cli1 lip 0 3f
+Cli2 lin 0 3f
+.control
+pre_osdi bsimcmg.osdi
+.options gminsteps=60
+tran 5p 40n uic
+let dlat = v(lip)-v(lin)
+meas tran txr WHEN dlat=0 CROSS=1 from=8n to=32n
+meas tran vxr FIND v(nramp) AT=txr
+print vxr
+.endc
+.end

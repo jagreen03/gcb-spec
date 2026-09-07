@@ -1,0 +1,71 @@
+* GCB single-slope comparator front end -- ASAP7 7nm (BSIM-CMG OSDI).
+*  Chopped + auto-zeroed NMOS-pair preamp, RESISTOR loads (self-defined CM),
+*  gain g_m*R_L ~ 8-12.  Input A = discharge-mode falling ramp 4.2 mV/ns.
+*  Input B = DC signal.  Decision = preamp differential-output zero crossing;
+*  input-referred trip point = ramp voltage at that crossing.
+*
+*  Device noise -> trnoise current sources, amplitudes set by the harness from
+*  the DC op-point g_m and the ASSUMED PUBLISHED-FinFET PROXIES:
+*     thermal S_id = 4kT*gamma*g_m           gamma = 1.0 (assumed, short-chan)
+*     flicker S_id = g_m^2 * K_Fn/(W*L*f),   K_Fn = 5e-11 V^2*um^2  (proxy)
+*  Pelgrom mismatch: series gate sources Vm1/Vm2, sigma_Vth = A_VT/sqrt(W*L),
+*     A_VT = 2.0 mV*um (proxy); values set per MC draw by the harness.
+.include MODELFILE
+.param VDD=0.8  ITAIL=30u  VCM=0.42  RL=24k  CAZ=300f  FCHOP=20e6  VSIG=0.45  NDT=20p
+.param IN_WHITE=5.0e-12  IN_FLICK=2.0e-11  LD_WHITE=3.5e-12  TL_WHITE=4.0e-12
+.param VOS1=0  VOS2=0
+
+Vdd vdd 0 {VDD}
+Vcm vcm 0 {VCM}
+Vramp nramp 0 pwl 0 {VSIG+0.063} 1n {VSIG+0.063} 31n {VSIG-0.063} 60n {VSIG-0.063}
+Vsig  nsig  0 {VSIG}
+* input chopper
+Vchp chp 0 pulse(0 1 0 40p 40p {0.5/FCHOP} {1/FCHOP})
+Vchn chn 0 pulse(1 0 0 40p 40p {0.5/FCHOP} {1/FCHOP})
+S1 nramp xip chp 0 sw
+S2 nsig  xin chp 0 sw
+S3 nramp xin chn 0 sw
+S4 nsig  xip chn 0 sw
+.model sw sw vt=0.5 vh=0.05 ron=150 roff=1e12
+* input auto-zero (first 5 ns of each chop period): xip/xin -> VCM
+Vaz paz 0 pulse(1 0 0 40p 40p 5n {1/FCHOP})
+Saz1 xip vcm paz 0 sw
+Saz2 xin vcm paz 0 sw
+* Pelgrom mismatch series sources on the input-pair gates
+Vm1 xip gp {VOS1}
+Vm2 xin gn {VOS2}
+* preamp: NMOS pair + resistor loads
+Itail tail 0 dc {ITAIL}
+N1 op gp tail 0 nmos_lvt nfin=8 l=24n
+N2 on gn tail 0 nmos_lvt nfin=8 l=24n
+RL1 vdd op {RL}
+RL2 vdd on {RL}
+* trnoise injectors
+Inn1 op tail trnoise({IN_WHITE} {NDT} 1.0 {IN_FLICK})
+Inn2 on tail trnoise({IN_WHITE} {NDT} 1.0 {IN_FLICK})
+Inl1 vdd op  trnoise({LD_WHITE} {NDT} 0 0)
+Inl2 vdd on  trnoise({LD_WHITE} {NDT} 0 0)
+Int1 tail 0  trnoise({TL_WHITE} {NDT} 0 0)
+* output chopper -> de-chop the signal, up-modulate preamp 1/f + offset
+S5 op oap chp 0 sw
+S6 on oan chp 0 sw
+S7 op oan chn 0 sw
+S8 on oap chn 0 sw
+Caz1 oap lip {CAZ}
+Caz2 oan lin {CAZ}
+Sazl1 lip vcm paz 0 sw
+Sazl2 lin vcm paz 0 sw
+Cli1 lip 0 2f
+Cli2 lin 0 2f
+.control
+pre_osdi bsimcmg.osdi
+set rndseed = SEEDVAL
+op
+print @n1[gm] @n1[gds] v(op) v(on) v(tail)
+tran 5p 60n uic
+let dpre = v(oap)-v(oan)
+meas tran txr WHEN dpre=0 CROSS=1 from=12n to=34n
+meas tran vxr FIND v(nramp) AT=txr
+print vxr txr
+.endc
+.end

@@ -1,0 +1,41 @@
+* Minimal preamp for input-referred THERMAL noise at the ramp crossing.
+*  NMOS pair + resistor loads + ideal tail.  No chopper / AZ (they do not
+*  reduce thermal noise -- that is the dominant term for this gate).
+*  Falling ramp 4.2 mV/ns on gp, DC signal on gn.  Decision = (v(op)-v(on))
+*  zero crossing; input-referred trip point = ramp voltage there.
+*  trnoise white current sources; amplitudes set by the harness from the
+*  DC op-point g_m and gamma=1.0 (assumed).
+.include MODELFILE
+.param VDD=0.8  ITAIL=30u  VCM=0.42  RL=24k  VSIG=0.45
+.param NDT=10p
+.param IN_WHITE=0  LD_WHITE=0  TL_WHITE=0
+Vdd vdd 0 {VDD}
+* ramp: 4.2 mV/ns falling through VSIG, crossing near t=16 ns
+Vramp gp 0 pwl 0 {VSIG+0.063} 1n {VSIG+0.063} 31n {VSIG-0.063} 60n {VSIG-0.063}
+Vsig  gn 0 {VSIG}
+Itail tail 0 dc {ITAIL}
+N1 op gp tail 0 nmos_lvt nfin=8 l=24n
+N2 on gn tail 0 nmos_lvt nfin=8 l=24n
+RL1 vdd op {RL}
+RL2 vdd on {RL}
+Inn1 op tail trnoise({IN_WHITE} {NDT} 0 0)
+Inn2 on tail trnoise({IN_WHITE} {NDT} 0 0)
+Inl1 vdd op  trnoise({LD_WHITE} {NDT} 0 0)
+Inl2 vdd on  trnoise({LD_WHITE} {NDT} 0 0)
+Int1 tail 0  trnoise({TL_WHITE} {NDT} 0 0)
+.control
+pre_osdi bsimcmg.osdi
+set rndseed = SEEDVAL
+op
+let gm  = @n1[gm]
+let gm2 = @n2[gm]
+let vop = v(op)
+let von = v(on)
+print gm gm2 vop von v(tail)
+tran 2p 40n uic
+let d = v(op)-v(on)
+meas tran txr WHEN d=0 CROSS=1 from=6n to=30n
+meas tran vxr FIND v(gp) AT=txr
+print vxr
+.endc
+.end
