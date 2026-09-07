@@ -1,0 +1,25 @@
+* asap7 osdi -- Id-Vg via source branch current
+.include 7nm_tt_osdi.pm
+Vd d 0 0.7
+Vg g 0 0
+N1 d g 0 0 nmos_slvt nfin=7 l=21n
+.control
+pre_osdi bsimcmg.osdi
+dc Vg 0 0.8 0.02
+let id = -i(Vd)
+meas dc id_on   FIND id WHEN v(g)=0.7
+meas dc id_off  FIND id WHEN v(g)=0.0
+let gm = deriv(id)
+meas dc gm_max MAX gm
+print id[5] id[15] id[25] id[35]
+* PMOS check
+.endc
+Vsd sd 0 0.7
+Vsg sg 0 0
+N2 0 sg sd sd pmos_slvt nfin=7 l=21n
+.control
+dc Vsg 0 0.8 0.05
+let ip = i(Vsd)
+print ip[0] ip[8] ip[16]
+.endc
+.end

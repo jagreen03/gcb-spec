@@ -1,0 +1,69 @@
+* GCB single-slope comparator: auto-zeroed pre-amp (NMOS pair, R loads) + StrongARM latch.
+* ASAP7 BSIM-CMG via OSDI.  Pre-amp gain ~ gm_in*RL.  Tail current set by ITAIL.
+* Auto-zero: OOS -- C_az from each pre-amp output to latch input; during AZ (phi_az=1)
+* pre-amp inputs shorted to VCM and latch-side of C_az driven to VAZ, sampling A*Vos.
+.include MODELFILE
+.param VDD=0.8
+.param ITAIL=30u
+.param RL=18k
+.param CAZ=200f
+.param VCM=0.35
+.param VAZ=0.40
+.param VSIG=0.0        $ differential input (V) applied to inp-inn about VCM
+.param NFIN_IN=4
+.param NFIN_LAT=3
+Vdd  vdd 0 {VDD}
+Vcm  vcm 0 {VCM}
+Vaz  vaz 0 {VAZ}
+* ---- differential stimulus ----
+Vip  inp vcm {VSIG/2}
+Vin  inn vcm {-VSIG/2}
+* ---- pre-amp: NMOS pair M1/M2, resistor loads, ideal tail current ----
+Itail tail 0 dc {ITAIL}
+N1 oap gp_p tail 0 nmos_lvt nfin={NFIN_IN} l=21n
+N2 oan gp_n tail 0 nmos_lvt nfin={NFIN_IN} l=21n
+RL1 vdd oap {RL}
+RL2 vdd oan {RL}
+* AZ input switches: connect pre-amp gates to inp/inn (compare) or vcm (az)
+Saz1 gp_p inp  phaz 0 swx
+Saz2 gp_n inn  phaz 0 swx
+Saz3 gp_p vcm  paz  0 swx
+Saz4 gp_n vcm  paz  0 swx
+.model swx sw vt=0.5 vh=0.05 ron=200 roff=1e12
+Vphaz  phaz 0 pwl(0 0 9.9n 0 10n 1)     $ compare phase after 10 ns
+Vpaz   paz  0 pwl(0 1 9.9n 1 10n 0)     $ AZ phase first 10 ns
+* AZ caps from pre-amp outputs to latch inputs
+Caz1 oap lip {CAZ}
+Caz2 oan lin {CAZ}
+* during AZ, hold latch-side of caz at VAZ
+Sazl1 lip vaz paz 0 swx
+Sazl2 lin vaz paz 0 swx
+* ---- StrongARM latch ----
+Vclk clk 0 pwl(0 0 11.9n 0 12n 0.8)     $ strobe at 12 ns
+N3 ntail clk 0 0 nmos_lvt nfin={NFIN_LAT} l=21n
+N4 dp lin ntail 0 nmos_lvt nfin={NFIN_LAT} l=21n
+N5 dn lip ntail 0 nmos_lvt nfin={NFIN_LAT} l=21n
+N6 dp dn dp_n dp_n nmos_lvt nfin={NFIN_LAT} l=21n
+N7 dn dp dn_n dn_n nmos_lvt nfin={NFIN_LAT} l=21n
+* cross-coupled load + precharge (simple)
+NP1 dp dn vdd vdd pmos_lvt nfin={NFIN_LAT} l=21n
+NP2 dn dp vdd vdd pmos_lvt nfin={NFIN_LAT} l=21n
+NPpc1 dp clk vdd vdd pmos_lvt nfin={NFIN_LAT} l=21n
+NPpc2 dn clk vdd vdd pmos_lvt nfin={NFIN_LAT} l=21n
+* tie helper nodes
+Rdpn dp dp_n 1
+Rdnn dn dn_n 1
+Cdp dp 0 1f
+Cdn dn 0 1f
+.control
+pre_osdi bsimcmg.osdi
+tran 5p 16n uic
+let dvout = v(dp)-v(dn)
+let apre  = (v(oap)-v(oan))
+meas tran vpre_az FIND apre AT=9n
+meas tran vpre_cmp FIND apre AT=11.5n
+meas tran vlat FIND dvout AT=15.5n
+print vpre_az vpre_cmp vlat
+wrdata OUTFILE v(dp) v(dn) apre
+.endc
+.end

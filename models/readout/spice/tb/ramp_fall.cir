@@ -1,0 +1,33 @@
+* GCB single-slope ramp -- ASAP7 NMOS current SINK, falling ramp.
+* C_ramp pre-charged to ~0.76 V, NMOS sink discharges it linearly.
+* Rationale: from a 0.8 V rail the ramp must reach 0.72 V; a rising source
+* has only ~80 mV headroom at the top (cannot cascode).  A falling ramp
+* gives the sink full V_DS at the top of the useful range; the sink only
+* loses headroom near v(rmp) -> 0, below the used 0.05 V code floor.
+.include MODELFILE
+.param VDD=0.8
+.param CRAMP=500f
+.param VBN=0.150     $ sink gate bias (sets I_sink)
+.param NF=1
+.param LR=30n
+.param VPRE=0.760
+Vdd  vdd 0 {VDD}
+Vbn  nbn 0 {VBN}
+NSNK rmp nbn 0 0 nmos_lvt nfin={NF} l={LR}
+Cramp rmp 0 {CRAMP} ic={VPRE}
+* precharge switch: hold rmp at VPRE until 1.5 ns
+Spre rmp npre pren 0 swpre
+.model swpre sw vt=0.5 vh=0.05 ron=100 roff=1e12
+Vnpre npre 0 {VPRE}
+Vpre  pren 0 pwl(0 1  1n 1  1.5n 0)
+.control
+pre_osdi bsimcmg.osdi
+tran 20p 230n uic
+let vr = v(rmp)
+meas tran t_hi WHEN vr=0.700 FALL=1
+meas tran t_lo WHEN vr=0.050 FALL=1
+let slope = (0.700-0.050)/(t_lo-t_hi)
+print slope t_hi t_lo
+wrdata OUTFILE v(rmp)
+.endc
+.end

@@ -1,0 +1,31 @@
+* GCB single-slope ramp -- ASAP7 PMOS CASCODE current source on a passive cap.
+* Cascode fixes the |Vds| collapse of the source device as v(rmp) rises,
+* so the delivered current stays flat over most of the 0..0.72 V span.
+.include MODELFILE
+.param VDD=0.8
+.param CRAMP=500f
+.param VBS=0.470      $ source-device gate bias  (sets I_ramp)
+.param VBC=0.170      $ cascode gate bias         (keeps source in saturation)
+.param NF=2
+.param LR=30n
+Vdd vdd 0 {VDD}
+Vbs nbs 0 {VBS}
+Vbc nbc 0 {VBC}
+NPS mid nbs vdd vdd pmos_lvt nfin={NF} l={LR}
+NPC rmp nbc mid mid   pmos_lvt nfin={NF} l={LR}
+Cramp rmp 0 {CRAMP} ic=0
+Srst rmp 0 rstn 0 swrst
+.model swrst sw vt=0.5 vh=0.05 ron=100 roff=1e12
+Vrst rstn 0 pwl(0 1  1n 1  1.5n 0)
+.control
+pre_osdi bsimcmg.osdi
+tran 20p 230n uic
+let vr = v(rmp)
+let iramp = abs(i(Vdd))
+meas tran t_lo WHEN vr=0.050 RISE=1
+meas tran t_hi WHEN vr=0.700 RISE=1
+let slope = (0.700-0.050)/(t_hi-t_lo)
+print slope t_lo t_hi
+wrdata OUTFILE v(rmp) iramp v(mid)
+.endc
+.end

@@ -1,0 +1,33 @@
+* GCB single-slope ramp generator -- ASAP7 current-on-capacitor
+* one PMOS in saturation, fixed gate bias, charging a passive MOM cap.
+* Non-idealities that create ramp INL are physical here:
+*   - PMOS output conductance (DIBL / channel-length mod) -> I droops as |Vds| falls
+*   - device leaves saturation as v(rmp) approaches the rail -> slope collapse
+* Params overridden by the harness via -D style .param edits.
+.include MODELFILE
+.param VDD=0.8
+.param CRAMP=500f
+.param VBS=0.512
+.param NF=1
+.param LR=30n
+Vdd  vdd 0 {VDD}
+Vbs  nbs 0 {VBS}
+NPS  rmp nbs vdd vdd pmos_lvt nfin={NF} l={LR}
+Cramp rmp 0 {CRAMP} ic=0
+* reset switch: hold rmp at 0 until t=1.5 ns, then release
+Srst rmp 0 rstn 0 swrst
+.model swrst sw vt=0.5 vh=0.05 ron=100 roff=1e12
+Vrst rstn 0 pwl(0 1  1n 1  1.5n 0)
+.control
+pre_osdi bsimcmg.osdi
+tran 20p 210n uic
+let vr = v(rmp)
+let iramp = abs(i(Vdd))
+* 3-decade time markers for slope
+meas tran t_lo  WHEN vr=0.050 RISE=1
+meas tran t_hi  WHEN vr=0.700 RISE=1
+let slope = (0.700-0.050)/(t_hi-t_lo)
+print slope t_lo t_hi
+wrdata OUTFILE v(rmp) iramp
+.endc
+.end

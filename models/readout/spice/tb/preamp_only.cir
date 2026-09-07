@@ -1,0 +1,33 @@
+* GCB pre-amp only: NMOS pair + R loads + ideal tail.  DC gain, op point, energy.
+.include MODELFILE
+.param VDD=0.8
+.param ITAIL=30u
+.param RL=18k
+.param VCM=0.35
+.param VD=0.0
+Vdd  vdd 0 {VDD}
+Vcm  vcm 0 {VCM}
+Vdif vd  0 {VD}
+Eip inp 0 vcm 0 1
+Ein inn 0 vcm 0 1
+Vp inp2 inp {VD/2}
+Vn inn2 inn {-VD/2}
+Itail tail 0 dc {ITAIL}
+N1 oap inp2 tail 0 nmos_lvt nfin=4 l=21n
+N2 oan inn2 tail 0 nmos_lvt nfin=4 l=21n
+RL1 vdd oap {RL}
+RL2 vdd oan {RL}
+.control
+pre_osdi bsimcmg.osdi
+* DC transfer: sweep differential input, measure output diff -> gain
+dc Vdif -0.02 0.02 0.0005
+let adiff = v(oap)-v(oan)
+let g = deriv(adiff)
+meas dc gain_max MAX g
+meas dc gain0 FIND g WHEN v(vd)=0
+* operating point currents/gm at Vd=0
+alter Vdif 0
+op
+print @n1[gm] @n2[gm] v(oap) v(oan) v(tail)
+.endc
+.end
