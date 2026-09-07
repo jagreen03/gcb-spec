@@ -27,7 +27,11 @@
 # (resolved).
 # =============================================================================
 
-map_version: "0.5.1"
+map_version: "0.5.2"
+# 0.5.2 -- Add a fifth regen.py consumer: gcb-wiki/datasheet/GCB-DS-PRELIM.md
+#          (`--target md`). regen.py injects the §5 Register Map table between
+#          the datasheet's REGEN markers instead of overwriting the file.
+#          No address / width / field-encoding change vs 0.5.1.
 # 0.5.1 -- Finalisation: Single-Slope CIS is the SELECTED GCB receiver
 #          (docs/adr/ADR-005). Charge-Balancing Sigma-Delta branch retired.
 #          Adds the design_decisions: block (DD-001, 6 GHz carry-select).
