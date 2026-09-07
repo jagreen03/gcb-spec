@@ -27,7 +27,12 @@
 # (resolved).
 # =============================================================================
 
-map_version: "0.5.0"
+map_version: "0.5.1"
+# 0.5.1 -- Finalisation: Single-Slope CIS is the SELECTED GCB receiver
+#          (docs/adr/ADR-005). Charge-Balancing Sigma-Delta branch retired.
+#          Adds the design_decisions: block (DD-001, 6 GHz carry-select).
+#          No address / width / field-encoding change vs 0.5.0 -- provenance
+#          bump only; re-run through regen.py --all for the consumers.
 # 0.5.0 -- SS_READOUT block 0xB0-0xC0: single-slope TDC gate/counter control,
 #          the per-channel 3-point calibration coefficient store (SS_CAL_IDX /
 #          SS_CAL_DATA, auto-increment like the BRAM window), ramp/gate timing,
@@ -95,6 +100,44 @@ defects:
       and TILE_ALLOC_MAP (0x98) is 36 bits, which places its fields nowhere
       near the documented positions.
     fix: see per-register defects on 0x90 and 0x98
+
+# DEFECT-001..004 are register-map / RTL-hygiene defects. They are NOT
+# associated with the retired Charge-Balancing Sigma-Delta readout branch
+# (ADR-005) -- that branch never reached a spec artifact; nothing to retire in
+# this file. They remain tracked as-is.
+
+design_decisions:
+  # Decisions, not defects. Recorded here so a future "simplification" does not
+  # silently undo them.
+  DD-001:
+    title: 6 GHz single-slope Gray counter uses carry-select, not ripple carry
+    status: accepted
+    context: >
+      SS_TDC (greencoyote_ss_tdc.sv) runs a 12-bit binary counter at 6 GHz
+      (166.7 ps period) whose Gray view is distributed to 64 channel capture
+      latches. ASAP7 7.5T static CMOS, SS/125 C derate ~1.5x.
+    finding: >
+      A 12-bit RIPPLE-carry counter does NOT close at SS/125 C: 12-stage carry
+      ~145 ps + CK->Q ~23 ps + next-state XOR/setup ~27 ps ~= 195 ps > 166.7 ps
+      (fails by ~28 ps). At TT/0.7 V it closes with only ~37 ps slack, which
+      hides the slow-corner failure in a nominal-only timing run.
+    decision: >
+      The counter MUST be carry-select or carry-lookahead (or a 4x3-bit
+      segmented counter with a pipelined segment carry). Carry-select 12-bit
+      ~= 62 ps at SS/125 C -> ~112 ps path, ~55 ps slack. The bin->Gray XOR is
+      off the counter's critical loop (feeds only the distribution flops) and
+      is not a 6 GHz bottleneck.
+      Additionally: the 4-phase 6 GHz CLOCK generation + distribution is a CML
+      island (DLL/ILO, CML trunk, CML->CMOS at each phase-latch bank); the
+      counter, phase latches, capture and calibration logic stay static CMOS.
+    do_not: >
+      Do not "simplify" the counter back to ripple carry on the basis of a
+      TT-only timing report. Do not build the 6 GHz 4-phase clock in static
+      CMOS.
+    refs:
+      - gcb-rtl/rtl/greencoyote_ss_tdc.sv
+      - gcb-papers/data/readout/rtl/RTL_REPORT.md (sec 3)
+      - docs/adr/ADR-005-Single-Slope-Readout.md
 
 registers:
 
