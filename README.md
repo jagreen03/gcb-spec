@@ -4,8 +4,23 @@ Single source of truth: MMIO register map, architecture log, ADRs
 
 Part of the GreenCoyote-Bay photonic inference fabric (ODIN_Bridge).
 
+## AI Onboarding (Paved Road)
+
+**New AI agent working on GCB: read
+[`ai-agents/README.md`](ai-agents/README.md) first and adopt your designated
+persona before doing anything else.**
+
+Context is expensive to rebuild every session and that is where drift and
+hallucination start. `ai-agents/` holds three role-specific system prompts —
+**System Architect**, **Analog / Spec Evaluator**, **RTL / Quality Verifier** —
+each carrying the current *Single-Slope CONDITIONAL GO* state compression and a
+strictly isolated set of rules. Pick the one that matches your task, paste it as
+your system prompt, and stay in that lane. Do not operate un-personalised.
+
 ## Contents
 
+- `ai-agents/` — role-specific AI initialization prompts (the paved road); start
+  at [`ai-agents/README.md`](ai-agents/README.md)
 - `registers.yaml` / `regen.py` — MMIO register map and code generation
 - `architecture.md` — architectural log
 - `bench_emulation_parameters.md` — Task 3 discrete reduction-cell component
