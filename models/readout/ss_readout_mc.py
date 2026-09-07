@@ -62,6 +62,13 @@ DEFAULTS = {
     "ramp_range_tol": 0.05,     # -     assumed  ramp slope PVT error per draw
     "ramp_dnl_sigma": 0.01,     # LSB   assumed  per-step DNL random walk (0 = analog ramp)
     "ramp_inl_bow": 0.001,      # frac  assumed  midscale bow of shared ramp
+    "ramp_inl_file": "",        # CSV "u,delta": measured ramp INL vs ramp fraction u (0..1),
+                                #   delta = deviation as fraction of ramp range; overrides bow
+    "ramp_inl_reverse": 0,      # 1 if small signals cross near ramp END (charge-up integrator,
+                                #   falling ramp); 0 if they cross near ramp START (discharge)
+    "ramp_lut_points": 0,       # 0 = none; N = piecewise-linear LUT correction of the shared
+                                #   ramp learned from N dummy-reference charges (per draw)
+    "ramp_shape_drift": 0.0,    # frac of the INL that changes between LUT refresh and use
     "t_clk_jitter": 2e-12,      # s rms assumed  latch clock jitter
     # --- input statistics / calibration ---
     "x_dist": "halfnormal",     # halfnormal: |N(0,1/crest)| (matches crest def) | uniform
@@ -134,7 +141,21 @@ class Channel:
             eps = np.zeros(n)
         u = (k + eps) / n
         if en["ramp_inl"]:
-            u = u + 4.0 * p["ramp_inl_bow"] * u * (1 - u)
+            if p["ramp_inl_file"]:
+                tab = np.loadtxt(p["ramp_inl_file"], delimiter=",", comments="#")
+                uu, dd = tab[:, 0], tab[:, 1]
+                if p["ramp_inl_reverse"]:
+                    uu, dd = 1.0 - uu[::-1], dd[::-1]
+                inl = np.interp(u, uu, dd)
+            else:
+                inl = 4.0 * p["ramp_inl_bow"] * u * (1 - u)
+            if p["ramp_lut_points"] > 0:
+                # LUT learned from N reference charges: removes the INL except the part
+                # between knots and the fraction that drifted since the LUT was taken
+                knots = np.linspace(0, 1, int(p["ramp_lut_points"]))
+                learned = np.interp(u, knots, np.interp(knots, u, inl))
+                inl = (inl - learned) + p["ramp_shape_drift"] * inl
+            u = u + inl
         self.thr = p["v_ramp_start"] + rng_v * u
         self.v_delay = p["t_comp_delay"] * (rng_v / d["T_ramp"])  # constant
         self.v_jit = p["t_clk_jitter"] * (rng_v / d["T_ramp"])
@@ -346,6 +367,8 @@ def main():
     if args.calib:
         p["calib"] = args.calib
 
+    if p["ramp_inl_file"] and not __import__("os").path.exists(p["ramp_inl_file"]):
+        sys.exit(f"ramp_inl_file not found: {p['ramp_inl_file']}")
     if args.sweep:
         name, vals = args.sweep[0], [float(v) for v in args.sweep[1:]]
         print(f"sweep {name}: value | SNDR_crest median/p05 dB | INL_rms p95 % | resid uV")

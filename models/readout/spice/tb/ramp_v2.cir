@@ -1,0 +1,41 @@
+* GCB single-slope ramp V2 -- DISCHARGE-MODE integrator.
+*   C_int precharged to ~0.77 V, PD sinks current, v_int falls; voltage floor ~0.2 V.
+*   Shared ramp = C_ramp precharged to V_START, discharged by a LOW-VOLTAGE
+*   CASCODE NMOS current sink mirrored from an ideal reference I_ref (= the
+*   replica-servo output: a real servo closes I_ref to bandgap/R; its residual
+*   slope error is carried by the MC param ramp_range_tol).
+*   Cascode is affordable now: the 0.2 V floor leaves ~2*Vdsat of headroom.
+.include MODELFILE
+.param VDD  = 0.8
+.param CRAMP = 500f
+.param IREF = 2.075u        $ -> slope 4.15 mV/ns into 500 fF  (replica-servo output, assumed ideal)
+.param VSTART = 0.770       $ ramp precharge (= discharge-mode integrator precharge)
+.param VCASC = 0.330        $ cascode gate bias (wide-swing-ish; keeps source dev saturated to the floor)
+.param NF = 4
+.param LR = 24n
+Vdd vdd 0 {VDD}
+* ---- reference branch (the replica) ----
+Iref vdd nrd dc {IREF}
+Vcb  ncb 0 {VCASC}
+NRC nrd ncb nrg nrg  nmos_lvt nfin={NF} l={LR}     $ ref cascode (diode via nrd->gate? use nrd)
+NRS nrg nrd 0   0    nmos_lvt nfin={NF} l={LR}     $ ref source dev, diode-connected (gate=nrd)
+* ---- output branch: sinks from the ramp cap ----
+NOC rmp ncb nog nog  nmos_lvt nfin={NF} l={LR}     $ output cascode
+NOS nog nrd 0   0    nmos_lvt nfin={NF} l={LR}     $ output source dev (gate mirrors nrd)
+Cramp rmp 0 {CRAMP} ic={VSTART}
+* precharge switch: hold rmp at VSTART until 1.5 ns then release
+Spre rmp nvs pren 0 swpre
+.model swpre sw vt=0.5 vh=0.05 ron=80 roff=1e12
+Vnvs nvs 0 {VSTART}
+Vpre pren 0 pwl(0 1  1n 1  1.5n 0)
+.control
+pre_osdi bsimcmg.osdi
+tran 20p 260n uic
+let vr = v(rmp)
+meas tran t_hi WHEN vr=0.720 FALL=1
+meas tran t_lo WHEN vr=0.200 FALL=1
+let slope = (0.720-0.200)/(t_lo-t_hi)
+print slope t_hi t_lo
+wrdata OUTFILE v(rmp)
+.endc
+.end
