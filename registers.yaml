@@ -27,7 +27,13 @@
 # (resolved).
 # =============================================================================
 
-map_version: "0.4.0"
+map_version: "0.5.0"
+# 0.5.0 -- SS_READOUT block 0xB0-0xC0: single-slope TDC gate/counter control,
+#          the per-channel 3-point calibration coefficient store (SS_CAL_IDX /
+#          SS_CAL_DATA, auto-increment like the BRAM window), ramp/gate timing,
+#          and SS_TDC_STATUS. Additive; address_space.end widened 0xAC -> 0xC0.
+#          See gcb-papers/data/readout/rtl/RTL_REPORT.md and
+#          gcb-rtl/rtl/greencoyote_ss_{tdc,calib}.sv.
 # 0.4.0 -- REDUCTION_CTRL.ROUND_MODE[12:11] and new RO BLK_SCALE_STATUS (0xAC)
 #          for the pilot block-floating-point NORMALIZE pass
 #          (carry_save_streaming_contract.md 5.1-5.4, 8.1). Additive.
@@ -37,7 +43,7 @@ module: greencoyote_pilot_regs
 
 address_space:
   base: 0x00
-  end: 0xAC
+  end: 0xC0
   stride: 4
   addr_width: 8          # widened in gcb-rtl 657b473 -- see DEFECT-001 (resolved)
   unmapped_read: 0xDEADBEEF
@@ -608,3 +614,93 @@ registers:
       - { name: LANE_BIAS_N,  bits: [9, 6],   access: ro, source: lane_bias_n,
           description: "Active lane count (queue_depth) latched at the last fire. The post-ADC de-bias subtracts LANE_BIAS_N * 2048 (5.3), not 8 * 2048 -- absent lanes are not offset-biased." }
       - { name: RSVD,         bits: [31, 10], access: rsvd }
+
+  # ===========================================================================
+  # SS_READOUT DOMAIN  0xB0-0xC0
+  # ===========================================================================
+  # Single-slope (CMOS-image-sensor style) optical readout digital back-end.
+  # Shared 12-bit Gray TDC at 6 GHz with 4-phase (24 GS/s) capture over 64
+  # channels, feeding a per-channel 3-point (quadratic) calibration.
+  # RTL: gcb-rtl/rtl/greencoyote_ss_tdc.sv, greencoyote_ss_calib.sv.
+  # Analysis: gcb-papers/data/readout/spice/SPICE_RESULTS_V3.md,
+  #           gcb-papers/data/readout/rtl/RTL_REPORT.md.
+
+  - name: SS_TDC_CTRL
+    offset: 0xB0
+    domain: inference
+    description: >
+      Single-slope TDC run/gate control. The comparator power-gate window is
+      placed STATICALLY around the calibration-known crossing (GATE_START), it
+      is never triggered by a channel's comparator output.
+    fields:
+      - { name: CNT_EN,      bits: [0, 0],   access: rw, reset: 0, signal: r_ss_cnt_en, output: ss_cnt_en,
+          description: "Run the shared Gray counter. Cleared = counter frozen, all phase latches hold." }
+      - { name: CLEAR_ALL,   bits: [1, 1],   access: w1p, signal: r_ss_clear_all, output: ss_clear_all,
+          description: "Self-clearing one-cycle strobe. Re-arms every channel's {fired} latch. Always reads 0." }
+      - { name: RSVD_3_2,    bits: [3, 2],   access: rsvd }
+      - { name: GATE_START,  bits: [15, 4],  access: rw, reset: 0x000, signal: r_ss_gate_start, output: ss_gate_start,
+          description: "Coarse code (0-4095) at which the comparator power-gate opens. The gate spans GATE_WIDTH 6 GHz ticks centred on the calibration-known nominal crossing." }
+      - { name: GATE_WIDTH,  bits: [27, 16], access: rw, reset: 0x078, signal: r_ss_gate_width, output: ss_gate_width,
+          description: "Gate width in 6 GHz counter ticks. Reset 0x078 = 120 ticks = 20 ns at 6 GHz (the analysed gated-decision window)." }
+      - { name: RSVD,        bits: [31, 28], access: rsvd }
+
+  - name: SS_CAL_IDX
+    offset: 0xB4
+    domain: inference
+    description: >
+      Pointer into the per-channel calibration coefficient store. Auto-advances
+      on every SS_CAL_DATA write: COEF_SEL 0->1->2 then wrap and CH += 1.
+      A full re-cal of all 64 channels is 192 back-to-back SS_CAL_DATA writes.
+    write_side_effect: "A direct write here sets the pointer and clears SS_TDC_STATUS.CAL_IDX_WRAP."
+    fields:
+      - { name: CH,          bits: [5, 0],   access: rw, reset: 0x00, signal: r_ss_cal_ch, output: ss_cal_ch,
+          description: "Channel 0-63." }
+      - { name: COEF_SEL,    bits: [7, 6],   access: rw, reset: 0b00, signal: r_ss_cal_sel, output: ss_cal_sel,
+          enum: { 0: C0, 1: C1, 2: C2, 3: RSVD },
+          description: "Which coefficient of x_hat = C2*u^2 + C1*u + C0 the next SS_CAL_DATA write targets. u = code/2^14." }
+      - { name: RSVD,        bits: [31, 8],  access: rsvd }
+
+  - name: SS_CAL_DATA
+    offset: 0xB8
+    domain: inference
+    description: >
+      Calibration coefficient value, signed Q4.28 fixed point (bit-exact
+      contract in gcb-rtl/sim/golden_ss_readout.py). Writing commits the word
+      to coefficient {SS_CAL_IDX.COEF_SEL} of channel {SS_CAL_IDX.CH} and
+      auto-increments SS_CAL_IDX. The 3-point fit that produces these is a
+      host/firmware float operation; the RTL only evaluates the polynomial.
+    write_side_effect: "Commits ss_cal_wr to the coefficient store and advances SS_CAL_IDX (COEF_SEL, then CH). CAL_IDX_WRAP is set when CH rolls 63 -> 0."
+    fields:
+      - { name: SS_CAL_DATA, bits: [31, 0],  access: rw, reset: 0x00000000, signal: r_ss_cal_data, output: ss_cal_data,
+          description: "Signed Q4.28. C1 (linear) is ~+1.0 nominal, C0/C2 are small." }
+
+  - name: SS_RAMP_TIMING
+    offset: 0xBC
+    domain: inference
+    description: Shared discharge-mode ramp generator timing.
+    fields:
+      - { name: T_RAMP,       bits: [11, 0],  access: rw, reset: 0xFFF, signal: r_ss_t_ramp, output: ss_t_ramp,
+          description: "Ramp length in 6 GHz x 4-phase (24 GS/s) ticks. Reset 0xFFF = 4095 -> 12-bit coarse full-scale = 170.6 ns, inside the 256 ns observation window." }
+      - { name: RAMP_RST_OFS, bits: [23, 12], access: rw, reset: 0x010, signal: r_ss_ramp_rst_ofs, output: ss_ramp_rst_ofs,
+          description: "Delay (24 GS/s ticks) from integration end to ramp-reset release." }
+      - { name: SLOPE_TRIM,   bits: [31, 24], access: rw, reset: 0x80, signal: r_ss_slope_trim, output: ss_slope_trim,
+          description: "Signed offset (0x80 = 0) on the replica servo reference that sets the 4.2 mV/ns slope. Coarse PVT trim." }
+
+  - name: SS_TDC_STATUS
+    offset: 0xC0
+    domain: inference
+    access: ro
+    description: Single-slope TDC telemetry.
+    fields:
+      - { name: RUNNING,      bits: [0, 0],   access: ro, source: ss_running,
+          description: "Gray counter is advancing (CNT_EN and not overflowed-halted)." }
+      - { name: OVERFLOW,     bits: [1, 1],   access: ro, source: ss_overflow,
+          description: "Sticky. A channel was still un-fired when the ramp reached coarse full-scale." }
+      - { name: RSVD_3_2,     bits: [3, 2],   access: rsvd }
+      - { name: FIRED_COUNT,  bits: [9, 4],   access: ro, source: ss_fired_count,
+          description: "Number of channels (0-64, saturating at 63 in this field) with a frozen result awaiting readout." }
+      - { name: LAST_CH,      bits: [15, 10], access: ro, source: ss_last_ch,
+          description: "Channel index of the most recent capture." }
+      - { name: CAL_IDX_WRAP, bits: [16, 16], access: ro, source: ss_cal_idx_wrap,
+          description: "Set when SS_CAL_IDX.CH rolled 63 -> 0 via auto-increment; cleared by a direct SS_CAL_IDX write." }
+      - { name: RSVD,         bits: [31, 17], access: rsvd }
