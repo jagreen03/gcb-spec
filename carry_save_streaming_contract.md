@@ -8,7 +8,7 @@ and RTL changes in §8 are **required follow-on work and are not yet implemented
 **Owners:** systems architecture (this doc) · `gcb-rtl` (pilot side) · Vortex
 integration shim (compute side).
 **Related:** `registers.yaml` (`PRECISION_MODE`, `GLOBAL_CAL`, `REDUCTION_CTRL`);
-`gcb-rtl/rtl/greencoyote_photonic_sequencer.sv`; `decisions/ADR-001`;
+`gcb-rtl/rtl/greencoyote_photonic_sequencer.sv`; `docs/adr/ADR-001`;
 `vortex_integration_notes.md` (compute-side tap, source-verified against Vortex
 3.0); `gcb-papers/p1-cascaded-reduction/optical_reduction_paper.md` §3.4, §4.1.
 

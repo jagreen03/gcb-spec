@@ -5,9 +5,8 @@
 **Accepted** — 2026-09-07. Supersedes the Charge-Balancing ΔΣ readout branch,
 which is **retired**.
 
-(ADR-001 lives in `gcb-spec/decisions/`; ADRs 002–004 were never written. This
-one is filed under `docs/adr/` per the retirement directive. The two locations
-should be consolidated later.)
+(All ADRs now live in `gcb-spec/docs/adr/`. ADRs 002–004 are reserved and were
+never filed — see `docs/adr/README.md`.)
 
 ## Context
 

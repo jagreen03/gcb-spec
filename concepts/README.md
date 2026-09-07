@@ -17,7 +17,7 @@
 >   use them for BOM, layout, thermal, or signal-integrity work.
 >
 > The authoritative sources for GCB remain [`../registers.yaml`](../registers.yaml),
-> [`../architecture.md`](../architecture.md), the ADRs in [`../decisions/`](../decisions/),
+> [`../architecture.md`](../architecture.md), the ADRs in [`../docs/adr/`](../docs/adr/),
 > and the RTL in the `gcb-rtl` repository.
 
 ## Purpose
