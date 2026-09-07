@@ -1,0 +1,26 @@
+* Comparator input-referred noise via ngspice .noise -- BSIM4 (level 14) diff
+* pair tuned to the ASAP7 BSIM-CMG operating point (g_m within ~35%).  Used
+* because ngspice evaluates .noise only for built-in models, not the OSDI
+* BSIM-CMG path.  NOIA/NOIB/NOIC set to the K_Fn = 5e-11 V^2*um^2 proxy.
+* Harness substitutes ITVAL (15u|30u) and RLVAL.
+.model nch nmos level=14
++ toxe=1.2n vth0=0.30 u0=0.028 vsat=1.1e5 k1=0.35 k2=0.05 nfactor=1.3 rdsw=180
++ cgso=1.3e-10 cgdo=1.3e-10
++ fnoimod=1 tnoimod=0 noia=6.25e41 noib=3.1e25 noic=1e9 ef=1 em=4.1e7
+Vdd vdd 0 0.8
+Vcm cm 0 0.44
+Vd dif 0 0 ac 1
+Ep g1 cm dif 0 0.5
+En g2 cm dif 0 -0.5
+Itail tail 0 dc ITVAL
+M1 op g1 tail 0 nch W=0.85u L=24n
+M2 on g2 tail 0 nch W=0.85u L=24n
+RL1 vdd op RLVAL
+RL2 vdd on RLVAL
+.control
+op
+noise v(op,on) Vd dec 60 1e3 1e9 1
+setplot noise1
+wrdata cmp_noise_out.txt inoise_spectrum
+.endc
+.end
