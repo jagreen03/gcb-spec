@@ -27,7 +27,17 @@
 # (resolved).
 # =============================================================================
 
-map_version: "0.5.2"
+map_version: "0.6.0"
+# 0.6.0 -- STREAMING TENSOR DMA block 0xC4-0xE4: descriptor-ring / autonomous 2D
+#          tensor DMA that feeds activation + weight operand tiles to the optical
+#          modulator DACs (docs/streaming_dma_architecture.md sec 6.4). Adds
+#          DMA_CTRL, DMA_DESC_RING_BASE_LO/HI, DMA_DESC_HEAD, DMA_DESC_TAIL
+#          (doorbell), DMA_DESC_WINDOW (auto-increment descriptor write port,
+#          BRAM_WR_DATA_HI style), DMA_WEIGHT_TILE_LO/HI (stationary-load
+#          trigger), DMA_STATUS. Also adds IRQ_CTRL.IRQ_DMA_DONE_EN[5] /
+#          IRQ_DMA_UNDERRUN_EN[6] (was RSVD). Additive block + one existing-reg
+#          field-encoding change; address_space.end widened 0xC0 -> 0xE4. RTL is
+#          follow-on (no *.sv authored yet) -- this bump lands the map only.
 # 0.5.2 -- Add a fifth regen.py consumer: gcb-wiki/datasheet/GCB-DS-PRELIM.md
 #          (`--target md`). regen.py injects the §5 Register Map table between
 #          the datasheet's REGEN markers instead of overwriting the file.
@@ -52,7 +62,7 @@ module: greencoyote_pilot_regs
 
 address_space:
   base: 0x00
-  end: 0xC0
+  end: 0xE4              # 0xC0 -> 0xE4 in map_version 0.6.0 (Streaming Tensor DMA block)
   stride: 4
   addr_width: 8          # widened in gcb-rtl 657b473 -- see DEFECT-001 (resolved)
   unmapped_read: 0xDEADBEEF
@@ -233,7 +243,11 @@ registers:
       - { name: IRQ_CAL_ERR_EN,     bits: [2, 2], access: rw, reset: 0, signal: r_irq_cal_err_en }
       - { name: IRQ_QUEUE_FULL_EN,  bits: [3, 3], access: rw, reset: 0, signal: r_irq_queue_full_en }
       - { name: IRQ_PASS_DONE_EN,   bits: [4, 4], access: rw, reset: 0, signal: r_irq_pass_done_en }
-      - { name: RSVD_7_5,           bits: [7, 5], access: rsvd }
+      - { name: IRQ_DMA_DONE_EN,    bits: [5, 5], access: rw, reset: 0, signal: r_irq_dma_done_en,
+          description: "Enable IRQ on Streaming Tensor DMA descriptor-list completion (docs/streaming_dma_architecture.md 6.4). Added in map_version 0.6.0." }
+      - { name: IRQ_DMA_UNDERRUN_EN, bits: [6, 6], access: rw, reset: 0, signal: r_irq_dma_underrun_en,
+          description: "Enable IRQ on DMA_STATUS.UNDERRUN (a line buffer would have underrun at a fire boundary; the window is aborted). Added in map_version 0.6.0." }
+      - { name: RSVD_7,             bits: [7, 7], access: rsvd }
       - { name: IRQ_STATUS,         bits: [8, 8], access: ro, source: r_irq_status,
           description: "Sticky. Cleared by writing IRQ_CLEAR." }
       - { name: IRQ_CLEAR,          bits: [9, 9], access: wo,
@@ -751,3 +765,138 @@ registers:
       - { name: CAL_IDX_WRAP, bits: [16, 16], access: ro, source: ss_cal_idx_wrap,
           description: "Set when SS_CAL_IDX.CH rolled 63 -> 0 via auto-increment; cleared by a direct SS_CAL_IDX write." }
       - { name: RSVD,         bits: [31, 17], access: rsvd }
+
+  # ===========================================================================
+  # STREAMING TENSOR DMA DOMAIN  0xC4 - 0xE4
+  # ===========================================================================
+  # Inbound operand feed: a descriptor-ring / autonomous 2D tensor DMA that moves
+  # activation and weight tiles from system memory / SRAM to the optical
+  # modulator DACs, so the CPU issues zero instructions during an accumulation
+  # window (Von Neumann starvation bypass). Architecture:
+  # docs/streaming_dma_architecture.md (sec 6.4 defines this block). Complement of
+  # carry_save_streaming_contract.md, which is the RESULT egress path.
+  #
+  # RTL is follow-on -- no *.sv is authored yet. map_version 0.6.0 lands the map
+  # only; regen.py emits address / field / reset constants for the consumers.
+  # The optical multiply/reduce core and single-slope readout are a fixed
+  # black box downstream of the modulator DAC bus.
+
+  - name: DMA_CTRL
+    offset: 0xC4
+    domain: dma
+    description: >
+      Streaming Tensor DMA run control and AXI4 read-master attributes. ARM is
+      accepted only when >= WINDOW_W operand rows are resident in the ping-pong
+      line buffers AND the weight-stationary buffer is loaded
+      (docs/streaming_dma_architecture.md 4.1).
+    fields:
+      - { name: EN,        bits: [0, 0],   access: rw,  reset: 0, signal: r_dma_en, output: dma_en,
+          description: "Master enable for the DMA engine. Cleared = descriptor walker and AXI read master idle." }
+      - { name: ARM,       bits: [1, 1],   access: w1p, signal: r_dma_arm, output: dma_arm,
+          description: "Self-clearing strobe. Arms the feed for the next accumulation window. Always reads 0." }
+      - { name: ABORT,     bits: [2, 2],   access: w1p, signal: r_dma_abort, output: dma_abort,
+          description: "Self-clearing strobe. Drops any in-flight window, flushes the line buffers, returns to idle. Always reads 0." }
+      - { name: RING_SRC,  bits: [3, 3],   access: rw,  reset: 0, signal: r_dma_ring_src, output: dma_ring_src,
+          enum: { 0: ONDIE, 1: INMEM },
+          description: "0 = on-die descriptor ring written through DMA_DESC_WINDOW; 1 = in-memory ring at DMA_DESC_RING_BASE, fetched by the AXI read master (6.1)." }
+      - { name: ARCACHE,   bits: [7, 4],   access: rw,  reset: 0x3, signal: r_dma_arcache, output: dma_arcache,
+          description: "AXI4 ARCACHE for operand reads. Reset 0x3 = Normal Non-cacheable Bufferable." }
+      - { name: ARPROT,    bits: [10, 8],  access: rw,  reset: 0b010, signal: r_dma_arprot, output: dma_arprot,
+          description: "AXI4 ARPROT for operand reads. Reset 0b010 = unprivileged, non-secure, data." }
+      - { name: RSVD_15_11, bits: [15, 11], access: rsvd }
+      - { name: WINDOW_W,  bits: [27, 16], access: rw,  reset: 0x000, signal: r_dma_window_w, output: dma_window_w,
+          description: "Operand rows the DMA must have buffered before ARM is accepted, i.e. the accumulation-window depth in tile rows (4.1). 0 = software has not configured a window." }
+      - { name: RSVD,      bits: [31, 28], access: rsvd }
+
+  - name: DMA_DESC_RING_BASE_LO
+    offset: 0xC8
+    domain: dma
+    description: "Low 32 bits of the in-memory descriptor-ring base address (used when DMA_CTRL.RING_SRC = INMEM). 64-byte alignment recommended."
+    fields:
+      - { name: RING_BASE_LO, bits: [31, 0], access: rw, reset: 0x00000000, signal: r_dma_ring_base_lo, output: dma_ring_base_lo }
+
+  - name: DMA_DESC_RING_BASE_HI
+    offset: 0xCC
+    domain: dma
+    description: "High address bits and size of the in-memory descriptor ring."
+    fields:
+      - { name: RING_BASE_HI,  bits: [15, 0],  access: rw, reset: 0x0000, signal: r_dma_ring_base_hi, output: dma_ring_base_hi,
+          description: "Bits [47:32] of the ring base address." }
+      - { name: RING_SZ_LOG2,  bits: [20, 16], access: rw, reset: 0x5, signal: r_dma_ring_sz_log2, output: dma_ring_sz_log2,
+          description: "log2 of the ring capacity in 32-byte descriptors. Reset 5 = 32 entries." }
+      - { name: RSVD,          bits: [31, 21], access: rsvd }
+
+  - name: DMA_DESC_HEAD
+    offset: 0xD0
+    domain: dma
+    access: ro
+    description: "Consumer index into the descriptor ring (next descriptor the walker will take). Wraps at 2^RING_SZ_LOG2."
+    fields:
+      - { name: HEAD, bits: [15, 0],  access: ro, source: dma_desc_head }
+      - { name: RSVD, bits: [31, 16], access: rsvd }
+
+  - name: DMA_DESC_TAIL
+    offset: 0xD4
+    domain: dma
+    description: >
+      Producer index into the descriptor ring. Software advances it after
+      writing descriptors; a write here is the DOORBELL that tells the walker
+      new descriptors are available.
+    write_side_effect: "Rings the DMA doorbell (dma_desc_doorbell pulse)."
+    fields:
+      - { name: TAIL, bits: [15, 0],  access: rw, reset: 0x0000, signal: r_dma_desc_tail, output: dma_desc_tail }
+      - { name: RSVD, bits: [31, 16], access: rsvd }
+
+  - name: DMA_DESC_WINDOW
+    offset: 0xD8
+    domain: dma
+    description: >
+      Auto-increment write port for the on-die descriptor ring (used when
+      DMA_CTRL.RING_SRC = ONDIE). Same pattern as BRAM_WR_DATA_HI / SS_CAL_DATA:
+      each 32-bit write appends one word to the current descriptor; 8 writes
+      (32 bytes) commit one descriptor and advance the ring tail. Write-only, no
+      readback. Descriptor layout: docs/streaming_dma_architecture.md 2.2.
+    write_side_effect: "Appends dma_desc_word to the on-die ring; every 8th write commits a descriptor and advances the tail."
+    fields:
+      - { name: DMA_DESC_WINDOW, bits: [31, 0], access: wo, signal: r_dma_desc_word, output: dma_desc_word }
+
+  - name: DMA_WEIGHT_TILE_LO
+    offset: 0xDC
+    domain: dma
+    description: "Low 32 bits of the weight-stationary tile base address (the tile loaded once and reused across the activation stream, 3.2)."
+    fields:
+      - { name: WT_BASE_LO, bits: [31, 0], access: rw, reset: 0x00000000, signal: r_dma_wt_base_lo, output: dma_wt_base_lo }
+
+  - name: DMA_WEIGHT_TILE_HI
+    offset: 0xE0
+    domain: dma
+    description: "High address bits and shape of the weight-stationary tile. Writing this latches the tile descriptor and starts the stationary load."
+    write_side_effect: "Latches the weight-tile descriptor and starts the stationary load; poll DMA_STATUS.WT_LOADED."
+    fields:
+      - { name: WT_BASE_HI, bits: [15, 0],  access: rw, reset: 0x0000, signal: r_dma_wt_base_hi, output: dma_wt_base_hi,
+          description: "Bits [47:32] of the weight-tile base address." }
+      - { name: WT_SHAPE,   bits: [19, 16], access: rw, reset: 0x0, signal: r_dma_wt_shape, output: dma_wt_shape,
+          description: "Weight-tile shape selector (tile-dimension code; encoding fixed with the optical array geometry)." }
+      - { name: RSVD,       bits: [31, 20], access: rsvd }
+
+  - name: DMA_STATUS
+    offset: 0xE4
+    domain: dma
+    access: ro
+    description: Streaming Tensor DMA telemetry.
+    fields:
+      - { name: RUNNING,       bits: [0, 0],   access: ro, source: dma_running,
+          description: "Descriptor walker / AXI read master active." }
+      - { name: ARMED,         bits: [1, 1],   access: ro, source: dma_armed,
+          description: "Feed is armed: >= WINDOW_W rows buffered and the weight tile loaded. The sequencer issues FIRE only while this is set (4.1)." }
+      - { name: WT_LOADED,     bits: [2, 2],   access: ro, source: dma_wt_loaded,
+          description: "The weight-stationary buffer holds the tile named by DMA_WEIGHT_TILE_LO/HI." }
+      - { name: UNDERRUN,      bits: [3, 3],   access: ro, source: dma_underrun,
+          description: "Sticky. A line buffer would have underrun at a fire boundary; the window was aborted (feeds the cal_err path). Cleared by DMA_CTRL.ABORT." }
+      - { name: DESC_ERR,      bits: [4, 4],   access: ro, source: dma_desc_err,
+          description: "Sticky. A descriptor was malformed (bad stride, 4 KB-boundary violation the walker could not split, or a PRECISION mismatch vs PRECISION_MODE)." }
+      - { name: RSVD_7_5,      bits: [7, 5],   access: rsvd }
+      - { name: ROWS_BUFFERED, bits: [19, 8],  access: ro, source: dma_rows_buffered,
+          description: "Operand rows currently resident in the ping-pong line buffers." }
+      - { name: LAST_DESC_ID,  bits: [31, 20], access: ro, source: dma_last_desc_id,
+          description: "Ring index of the most recently completed descriptor." }
