@@ -56,7 +56,8 @@ Vortex 3.0 TCU  ──►  Q17.14 carry-save stream  ──►  optical cascade 
 |---|---|
 | register map (all consumers) | `registers.yaml` (+ `docs/adr/`, `DD-001` design decision) |
 | Vortex compute tap | `vortex_integration_notes.md` |
-| accumulator → optical stream | `carry_save_streaming_contract.md` |
+| accumulator → optical stream (result egress) | `carry_save_streaming_contract.md` |
+| memory → optical modulators (operand ingress) | `docs/streaming_dma_architecture.md` |
 | optical-cell physical parameters | `bench_emulation_parameters.md` ⇄ `gcb-rtl/sim/mmi_tree_model.py` |
 | readout architecture choice | `docs/adr/ADR-005-Single-Slope-Readout.md` |
 | readout evidence (SPICE, RTL, MC) | `gcb-papers/data/readout/spice/SPICE_RESULTS_V3.md`, `.../rtl/RTL_REPORT.md` |
