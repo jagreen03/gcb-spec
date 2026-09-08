@@ -59,12 +59,36 @@
             {
                 "label": "RTL: Vivado OOC Synthesis (DMA)",
                 "type": "shell",
-                "command": "${XILINX_VIVADO:+$XILINX_VIVADO/bin/}vivado -mode batch -source scripts/synth_dma_ooc.tcl -log vivado_synth_dma_ooc.log -nojournal -notrace",
+                "command": "cmd.exe /c \"C:\\Xilinx\\Vivado\\2024.2\\bin\\vivado.bat -mode batch -source scripts/synth_dma_ooc.tcl -log vivado_synth_dma_ooc.log -nojournal -notrace\"",
                 "options": {
                     "cwd": "${workspaceFolder:gcb-rtl}"
                 },
-                "problemMatcher": [],
                 "group": "build",
+                "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+            },
+            {
+                "label": "QA: Full Regression Sweep",
+                "type": "shell",
+                "command": "./scripts/run_regression.sh",
+                "options": {
+                    "cwd": "${workspaceFolder:gcb-rtl}"
+                },
+                "group": {
+                    "kind": "build",
+                    "isDefault": true
+                },
+                "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+            },
+            {
+                "label": "VIS: Build Hardware Visualizations",
+                "type": "shell",
+                "command": "python3",
+                "args": ["build_visuals.py"],
+                "options": {
+                    "cwd": "${workspaceFolder:gcb-dashboard}"
+                },
+                "group": "build",
+                "problemMatcher": [],
                 "presentation": { "reveal": "always", "panel": "shared", "clear": true }
             }
         ]
@@ -91,6 +115,15 @@
                 "env": {
                     "PYTHONPATH": "${workspaceFolder:gcb-host}"
                 }
+            },
+            {
+                "name": "Debug Visual Orchestrator (gcb-dashboard)",
+                "type": "debugpy",
+                "request": "launch",
+                "program": "${workspaceFolder:gcb-dashboard}/build_visuals.py",
+                "console": "integratedTerminal",
+                "cwd": "${workspaceFolder:gcb-dashboard}",
+                "justMyCode": true
             }
         ]
     }
