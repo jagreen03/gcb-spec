@@ -76,6 +76,14 @@ Anchors (modelled operating point, not silicon):
 | pilot fabric clock `user_clk` | 300 MHz | `carry_save_streaming_contract.md` §1 |
 | operand precision | INT4 / FP4 / FP8 / BF16 → 0.5–2 B | `PRECISION_MODE.MODE_SEL` |
 
+> **Geometry now LOCKED — see [`optical_geometry_spec.md`](optical_geometry_spec.md).**
+> `N` = 64 optical channels, `L` = 16 contraction lanes/fire, `T_fire` = 500 ps
+> (2.0 GHz), 512 fires/window, INT8 sizing. The parametric analysis below is
+> retained for derivation; the hard numbers (32 GB/s activation floor, 512 KiB
+> weight tile, 512-bit AXI @ 300 MHz ×2, 2×16 KiB activation ping-pong,
+> 64×8 KiB distributed weight buffer) and the RTL Hand-off Block live in that
+> document.
+
 Per window: `MACs = 64 × 8192 = 524 288`.
 Window rate: `1 / 256 ns = 3.906 MHz`.
 **Sustained MAC rate `≈ 2.05 × 10¹² MAC/s`** (2.05 TMAC/s) at this operating
@@ -462,12 +470,16 @@ conversion per output group). Inbound + outbound together keep the fabric at
 
 ## 9. Open questions / follow-on
 
-- **AXI width and port count** are provisional (§2.1) until the optical array
-  geometry `N` and `T_fire` are fixed — those live in the black box / the p3
-  unified-matmul work. The bandwidth *method* in §1.1 is stable; the number
-  moves with `N`.
-- **Weight buffer capacity** follows the tile size; §3.2 gives the formula, not
-  a final KB.
+- ~~**AXI width and port count** are provisional~~ **RESOLVED** —
+  [`optical_geometry_spec.md`](optical_geometry_spec.md) v1.0.0 locks
+  `N` = 64, `L` = 16, `T_fire` = 500 ps and sizes the master at
+  **512-bit AXI4 @ 300 MHz, 2 read ports** (4-port build option for low-batch
+  weight refill).
+- ~~**Weight buffer capacity**~~ **RESOLVED** — `optical_geometry_spec.md` §3.3:
+  **64 banks × 8 KiB = 512 KiB distributed** (one weight row per optical
+  channel), 128-bit read port/bank at the 2.0 GHz `T_fire` cadence;
+  single-buffered is zero-stall for `B ≥ 128`, double-buffer (1 MiB) for
+  zero-stall layer/expert swap.
 - **Descriptor ring placement** — on-die vs in-memory (§6.1). In-memory needs
   the AXI master to fetch descriptors (adds an `AR` context); on-die caps
   program length. Default: on-die ring for v1, in-memory behind `RING_SRC`.
