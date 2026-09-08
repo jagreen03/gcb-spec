@@ -1,0 +1,104 @@
+{
+"folders": [
+        { "path": ".", "name": "gcb-spec" },
+        { "path": "../gcb-rtl", "name": "gcb-rtl" },
+        { "path": "../gcb-host", "name": "gcb-host" },
+        { "path": "../gcb-dashboard", "name": "gcb-dashboard" },
+        { "path": "../gcb-papers", "name": "gcb-papers" },
+        { "path": "../gcb-wiki", "name": "gcb-wiki" }
+    ],
+    "settings": {
+        "files.exclude": {
+            "**/.git": true,
+            "**/__pycache__": true
+        }
+    },
+    "tasks": {
+        "version": "2.0.0",
+        "tasks": [
+            {
+                "label": "RTL: Run DMA Testbench",
+                "type": "shell",
+                "command": "./sim/run_dma_tb.sh",
+                "options": {
+                    "cwd": "${workspaceFolder:gcb-rtl}"
+                },
+                "group": "test",
+                "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+            },
+            {
+                "label": "RTL: Run Single-Slope SS/TDC Testbench",
+                "type": "shell",
+                "command": "./sim/run_ss_tb.sh",
+                "options": {
+                    "cwd": "${workspaceFolder:gcb-rtl}"
+                },
+                "group": "test",
+                "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+            },
+            {
+                "label": "SPEC: Regenerate Registers",
+                "type": "shell",
+                "command": "python regen.py --all",
+                "options": {
+                    "cwd": "${workspaceFolder:gcb-spec}"
+                },
+                "group": "build",
+                "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+            },
+            {
+                "label": "PAPERS: Build PDFs (Preprint & Datasheet)",
+                "type": "shell",
+                "command": "./scripts/build_pdfs.sh",
+                "options": {
+                    "cwd": "${workspaceFolder:gcb-papers}"
+                },
+                "group": "build",
+                "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+            },
+            {
+                "label": "RTL: Vivado OOC Synthesis (DMA)",
+                "type": "process",
+                "command": "C:\\Xilinx\\Vivado\\2023.2\\bin\\vivado.bat",
+                "args": [
+                    "-mode", "batch",
+                    "-source", "scripts/synth_dma_ooc.tcl",
+                    "-log", "vivado_synth_dma_ooc.log",
+                    "-nojournal",
+                    "-notrace"
+                ],
+                "options": {
+                    "cwd": "${workspaceFolder:gcb-rtl}"
+                },
+                "problemMatcher": [],
+                "group": "build",
+                "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+            }
+        ]
+    },
+    "launch": {
+        "version": "0.2.0",
+        "configurations": [
+            {
+                "name": "Debug regen.py (gcb-spec)",
+                "type": "debugpy",
+                "request": "launch",
+                "program": "${workspaceFolder:gcb-spec}/regen.py",
+                "args": ["--all"],
+                "console": "integratedTerminal",
+                "cwd": "${workspaceFolder:gcb-spec}"
+            },
+{
+                "name": "Debug Proxy (gcb-host)",
+                "type": "debugpy",
+                "request": "launch",
+                "program": "${workspaceFolder:gcb-host}/proxy/gcb_proxy.py",
+                "console": "integratedTerminal",
+                "cwd": "${workspaceFolder:gcb-host}/proxy",
+                "env": {
+                    "PYTHONPATH": "${workspaceFolder:gcb-host}"
+                }
+            }
+        ]
+    }
+}
