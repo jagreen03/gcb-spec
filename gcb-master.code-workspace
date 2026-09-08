@@ -58,8 +58,8 @@
             },
             {
                 "label": "RTL: Vivado OOC Synthesis (DMA)",
-                "type": "process",
-                "command": "C:\\Xilinx\\Vivado\\2023.2\\bin\\vivado.bat",
+                "type": "shell",
+                "command": "/mnt/c/Xilinx/Vivado/2023.2/bin/vivado.bat",
                 "args": [
                     "-mode", "batch",
                     "-source", "scripts/synth_dma_ooc.tcl",
