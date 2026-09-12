@@ -53,13 +53,9 @@ actually drive.
 |---|---|---|---|
 | CW laser source | O-band, **1310 nm** center wavelength (matches `02_receiver_architecture.md`'s O-band invariant and every `gcb-rtl`/`gcb-spec` reference to "O-band sources"); DFB (single-longitudinal-mode, narrow linewidth — needed so modulator-induced chirp and any wavelength-dependent mesh response stay small and repeatable); fiber-pigtailed, singlemode, FC/APC; ≥ a few mW optical output (enough margin for isolator + modulator + splitter + mesh-emulation insertion loss, §2) | `[CANDIDATE — parametric fit]` a 1310 nm DFB laser diode in a fiber-pigtailed benchtop or butterfly-packaged module from a benchtop photonics supplier (e.g., Thorlabs' or a comparable vendor's 1310 nm DFB laser diode source line) | Exact model, output power bin, and whether a benchtop laser-diode controller/driver unit is bundled or separate is a vendor-quote decision, not specified here |
 | Optical isolator | 1310 nm band, in-line fiber-pigtailed, singlemode, FC/APC; isolation ≥ 30 dB single-stage (≥ 2 stages if back-reflection from the splitter/mesh-emulation network in §2 proves to destabilize the DFB — not yet characterized) | `[TBD — vendor survey not performed]` | Placed immediately after the laser source, before the modulator, per standard DFB protection practice — not yet confirmed against this specific bench's actual back-reflection budget |
-| Optical intensity modulator | O-band (1310 nm) compatible; **linear (not digital on/off) intensity control with effective ≥ 8-bit resolution** over its usable linear range, so the modulator itself does not become the bench's accuracy floor ahead of the ≈10.8-bit ENOB target (§3); driven from `greencoyote_dac_if.sv`'s 14-bit parallel DAC word via an analog driver stage (not specified here — see "Open items" below); bandwidth only needs to cover the bench's `fire` strobe cadence, not a high-speed telecom line rate | `[TBD — vendor survey not performed]` | Candidate technologies: a LiNbO₃ (lithium-niobate) Mach-Zehnder intensity modulator from a specialty O-band modulator vendor, OR a simpler variable optical attenuator (VOA) driven in its linear region if bandwidth/linearity needs are modest enough — **this choice is architecturally open and should be resolved by an actual linearity measurement against the 8-bit target, not assumed from a datasheet alone** |
+| Optical intensity modulator | O-band (1310 nm) compatible; **linear (not digital on/off) intensity control with effective ≥ 8-bit resolution** over its usable linear range, so the modulator itself does not become the bench's accuracy floor ahead of the ≈10.8-bit ENOB target (§3); driven from `greencoyote_dac_if.sv`'s 14-bit parallel DAC word via the driver stage below; bandwidth only needs to cover the bench's `fire` strobe cadence, not a high-speed telecom line rate | **DECIDED (`TKT-028`, 2026-09-12): linear VOA**, `[TBD — vendor survey not performed]` for the specific part | **Executive decision, not a vendor pick**: VOA over a LiNbO₃ Mach-Zehnder modulator. Rationale — (1) this row's own requirement already states bandwidth only needs to cover the bench's low-rate `fire` cadence, not a telecom line rate, which removes an MZ modulator's one real advantage over a VOA for this application; (2) an MZ modulator's transfer function is fundamentally a cosine-squared interferometric response requiring an active bias-point (quadrature) servo to get ANY usable linear region at all — a whole bias-stabilization subsystem Phase I does not otherwise need, directly against this program's own Phase-I purpose of de-risking the summation/ratiometric physics with the FEWEST new unknowns, not the most; (3) a VOA's attenuation-vs-control-voltage response, while still needing calibration, is commonly a smooth, monotonic function over its usable range with no interferometric lock required — a much more direct path to an 8-bit-linear (or lookup-table-linearizable) target. This reasoning was already flagged as the deciding factor in this row's own prior text ("if bandwidth/linearity needs are modest enough") — by (1) above, they are. The specific VOA part remains `[TBD]`: needs 1310 nm rating, fiber-pigtailed (FC/APC, matching §2), analog-voltage-controlled attenuation, a monotonic response over its usable range, and a control bandwidth far exceeding the bench's own `fire` cadence (trivial for essentially any COTS VOA at this bench's timescales) |
 
-**Open item, not resolved by this document:** the analog driver stage
-between `greencoyote_dac_if.sv`'s 14-bit digital word and whichever
-modulator is selected (a DAC-to-modulator-drive amplifier/level-shifter) has
-no owner or part candidate yet — it is a new gap this document surfaces
-rather than a previously-known one.
+| DAC-to-modulator analog driver stage | Converts `greencoyote_dac_if.sv`'s 14-bit parallel digital word into the VOA's analog control voltage — (a) a parallel-input DAC, (b) a driver/buffer stage scaling the DAC's output onto the VOA's control range | **DAC**: `[CANDIDATE — parametric fit]` Analog Devices AD9767 — a dual 14-bit, parallel-CMOS-input DAC. **Driver**: `[CANDIDATE — parametric fit]` a precision, low-offset CMOS op-amp in the general class Analog Devices markets for DAC-output signal conditioning (e.g., an AD8605-class part), configured as a current-to-voltage converter (AD9767 is current-output) followed by a scaling/level-shift stage | **Why AD9767 specifically**: `greencoyote_dac_if.sv`'s own header comment already anchors its bus timing on "DAC5672/AD9767-class" generic parallel-DAC timing — that reference was an *illustrative analogy*, not a selection, when it was written; this ticket elevates it to an actual candidate because it is a real, well-known 14-bit parallel-input part whose timing the RTL was already modeled on, and it matches the bus width exactly. **Why this driver class, not a telecom modulator-driver IC**: the VOA decision above means the drive target is a low-bandwidth analog control voltage, not a GHz-class RF modulator drive — a high-speed telecom driver IC would be both the wrong voltage range and substantial overkill/added noise risk for this application. **Not yet calculated**: the exact op-amp gain/scaling-resistor values, which depend on the specific VOA's control-voltage range — itself still `[TBD]` above; this is a real, acknowledged blocking dependency, not an oversight. |
 
 ---
 
@@ -171,8 +167,9 @@ point at which it is easiest to accidentally violate, because the TIA's
 |---|---|---|
 | §1 | CW laser source | CANDIDATE (parametric fit) |
 | §1 | Optical isolator | TBD |
-| §1 | Intensity modulator | TBD (architecture itself open: LiNbO₃ MZ vs. VOA) |
-| §1 | DAC-to-modulator analog driver | **Not specified — new gap surfaced by this document** |
+| §1 | Intensity modulator | **DECIDED: linear VOA** (`TKT-028`); specific part TBD |
+| §1 | DAC-to-modulator DAC | CANDIDATE (parametric fit) — AD9767 (`TKT-028`) |
+| §1 | DAC-to-modulator analog driver | CANDIDATE (parametric fit) — precision op-amp I-to-V + scaling stage (`TKT-028`); exact gain blocked on the VOA's own control-voltage range |
 | §2 | Fiber array connectors | TBD |
 | §2 | PM splitters | TBD |
 | §2 | 8×8 mesh bench coupling emulation topology | TBD (design task, not a component) |
@@ -185,9 +182,13 @@ closed, and every electrical/optical requirement the existing,
 already-locked repository sources actually specify is captured in one
 place. **No part has been purchased, no part has been bench-validated, and
 the CANDIDATE entries above are starting points for a vendor quote, not a
-completed down-select.** The photocurrent budget (§3.2), the DAC-to-modulator
-driver (§1), and the mesh-emulation topology (§2) are concrete open
-engineering tasks this document surfaces, not resolves.
+completed down-select.** `TKT-028` (2026-09-12) resolved §1's modulator
+architecture (VOA, decided) and put first candidates on file for the DAC
+(AD9767) and driver stage (precision op-amp I-to-V + scaling) — the exact
+driver gain/scaling values remain blocked on the VOA's own control-voltage
+range, which is still `[TBD]`. The photocurrent budget (§3.2, `TKT-026`)
+and the mesh-emulation topology (§2) remain concrete open engineering
+tasks this document surfaces, not resolves.
 
 ## Related
 
