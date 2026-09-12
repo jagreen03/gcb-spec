@@ -51,9 +51,9 @@ actually drive.
 
 | Item | Requirement | Candidate | Notes |
 |---|---|---|---|
-| CW laser source | O-band, **1310 nm** center wavelength (matches `02_receiver_architecture.md`'s O-band invariant and every `gcb-rtl`/`gcb-spec` reference to "O-band sources"); DFB (single-longitudinal-mode, narrow linewidth — needed so modulator-induced chirp and any wavelength-dependent mesh response stay small and repeatable); fiber-pigtailed, singlemode, FC/APC; ≥ a few mW optical output (enough margin for isolator + modulator + splitter + mesh-emulation insertion loss, §2) | `[CANDIDATE — parametric fit]` a 1310 nm DFB laser diode in a fiber-pigtailed benchtop or butterfly-packaged module from a benchtop photonics supplier (e.g., Thorlabs' or a comparable vendor's 1310 nm DFB laser diode source line) | Exact model, output power bin, and whether a benchtop laser-diode controller/driver unit is bundled or separate is a vendor-quote decision, not specified here |
-| Optical isolator | 1310 nm band, in-line fiber-pigtailed, singlemode, FC/APC; isolation ≥ 30 dB single-stage (≥ 2 stages if back-reflection from the splitter/mesh-emulation network in §2 proves to destabilize the DFB — not yet characterized) | `[TBD — vendor survey not performed]` | Placed immediately after the laser source, before the modulator, per standard DFB protection practice — not yet confirmed against this specific bench's actual back-reflection budget |
-| Optical intensity modulator | O-band (1310 nm) compatible; **linear (not digital on/off) intensity control with effective ≥ 8-bit resolution** over its usable linear range, so the modulator itself does not become the bench's accuracy floor ahead of the ≈10.8-bit ENOB target (§3); driven from `greencoyote_dac_if.sv`'s 14-bit parallel DAC word via the driver stage below; bandwidth only needs to cover the bench's `fire` strobe cadence, not a high-speed telecom line rate | **DECIDED (`TKT-028`, 2026-09-12): linear VOA**, `[TBD — vendor survey not performed]` for the specific part | **Executive decision, not a vendor pick**: VOA over a LiNbO₃ Mach-Zehnder modulator. Rationale — (1) this row's own requirement already states bandwidth only needs to cover the bench's low-rate `fire` cadence, not a telecom line rate, which removes an MZ modulator's one real advantage over a VOA for this application; (2) an MZ modulator's transfer function is fundamentally a cosine-squared interferometric response requiring an active bias-point (quadrature) servo to get ANY usable linear region at all — a whole bias-stabilization subsystem Phase I does not otherwise need, directly against this program's own Phase-I purpose of de-risking the summation/ratiometric physics with the FEWEST new unknowns, not the most; (3) a VOA's attenuation-vs-control-voltage response, while still needing calibration, is commonly a smooth, monotonic function over its usable range with no interferometric lock required — a much more direct path to an 8-bit-linear (or lookup-table-linearizable) target. This reasoning was already flagged as the deciding factor in this row's own prior text ("if bandwidth/linearity needs are modest enough") — by (1) above, they are. The specific VOA part remains `[TBD]`: needs 1310 nm rating, fiber-pigtailed (FC/APC, matching §2), analog-voltage-controlled attenuation, a monotonic response over its usable range, and a control bandwidth far exceeding the bench's own `fire` cadence (trivial for essentially any COTS VOA at this bench's timescales) |
+| CW laser source | O-band, **1310 nm** center wavelength (matches `02_receiver_architecture.md`'s O-band invariant and every `gcb-rtl`/`gcb-spec` reference to "O-band sources"); DFB (single-longitudinal-mode, narrow linewidth — needed so modulator-induced chirp and any wavelength-dependent mesh response stay small and repeatable); fiber-pigtailed, singlemode, FC/APC; ≥ a few mW optical output (enough margin for isolator + modulator + splitter + mesh-emulation insertion loss, §2) | **`GCB-LSR-01`** `[CANDIDATE — parametric fit]` — 1310 nm DFB laser diode, fiber-pigtailed benchtop/butterfly module (Thorlabs-equivalent) | Internal BOM reference assigned for schematic capture; vendor SKU still not pinned — see honesty-tier note above. Target output: **+3 dBm** (§3.2 loss budget) |
+| Optical isolator | 1310 nm band, in-line fiber-pigtailed, singlemode, FC/APC; isolation ≥ 30 dB single-stage (≥ 2 stages if back-reflection from the splitter/mesh-emulation network in §2 proves to destabilize the DFB — not yet characterized) | **`GCB-ISO-01`** `[TBD — vendor survey not performed]` — in-line fiber isolator, 1310 nm, FC/APC, ≥30 dB | Placed immediately after the laser source, before the modulator, per standard DFB protection practice. Loss-budget value: **0.5 dB** (§3.2) |
+| Optical intensity modulator | O-band (1310 nm) compatible; **linear (not digital on/off) intensity control with effective ≥ 8-bit resolution** over its usable linear range, so the modulator itself does not become the bench's accuracy floor ahead of the ≈10.8-bit ENOB target (§3); driven from `greencoyote_dac_if.sv`'s 14-bit parallel DAC word via the driver stage below; bandwidth only needs to cover the bench's `fire` strobe cadence, not a high-speed telecom line rate | **`GCB-VOA-01`** `[TBD — vendor survey not performed]` — linear VOA, 1310 nm, FC/APC (replaces LiNbO₃ MZ — eliminates the active bias-servo requirement) | **Executive decision (`TKT-028`), unchanged by this reference-number pass**: VOA over MZ because (1) bandwidth only needs the bench's low-rate `fire` cadence, removing MZ's one advantage; (2) MZ's cosine-squared response needs an active quadrature servo Phase I doesn't otherwise need; (3) a VOA's attenuation-vs-control-voltage curve is smooth/monotonic, a more direct path to 8-bit-linear. Loss-budget value: **2.0 dB nominal** (§3.2, at its minimum-attenuation operating point) |
 
 | DAC-to-modulator analog driver stage | Converts `greencoyote_dac_if.sv`'s 14-bit parallel digital word into the VOA's analog control voltage — (a) a parallel-input DAC, (b) a driver/buffer stage scaling the DAC's output onto the VOA's control range | **DAC**: `[CANDIDATE — parametric fit]` Analog Devices AD9767 — a dual 14-bit, parallel-CMOS-input DAC. **Driver**: `[CANDIDATE — parametric fit]` a precision, low-offset CMOS op-amp in the general class Analog Devices markets for DAC-output signal conditioning (e.g., an AD8605-class part), configured as a current-to-voltage converter (AD9767 is current-output) followed by a scaling/level-shift stage | **Why AD9767 specifically**: `greencoyote_dac_if.sv`'s own header comment already anchors its bus timing on "DAC5672/AD9767-class" generic parallel-DAC timing — that reference was an *illustrative analogy*, not a selection, when it was written; this ticket elevates it to an actual candidate because it is a real, well-known 14-bit parallel-input part whose timing the RTL was already modeled on, and it matches the bus width exactly. **Why this driver class, not a telecom modulator-driver IC**: the VOA decision above means the drive target is a low-bandwidth analog control voltage, not a GHz-class RF modulator drive — a high-speed telecom driver IC would be both the wrong voltage range and substantial overkill/added noise risk for this application. **Not yet calculated**: the exact op-amp gain/scaling-resistor values, which depend on the specific VOA's control-voltage range — itself still `[TBD]` above; this is a real, acknowledged blocking dependency, not an oversight. |
 
@@ -74,8 +74,8 @@ summation/ratiometric-cancellation physics and the detection chain
 
 | Item | Requirement | Candidate | Notes |
 |---|---|---|---|
-| Fiber array connectors | Singlemode, 1310 nm-rated, FC/APC (angle-polished, to control back-reflection into the isolator/laser of §1) at every patch point | `[TBD — vendor survey not performed]` | Standard telecom-grade FC/APC patch cables/connectors; no array-specific (MT-ferrule) connector is required YET because there is no physical multi-channel PIC facet to mate to — if/when `gcb-pic-core` produces a real fiber-array-coupled device, this line item will need to be revisited against that device's actual facet pitch and connector standard |
-| PM (polarization-maintaining) splitters | 1310 nm-rated, PM fiber (to keep the modulator's and the eventual mesh's polarization-dependent response well-defined and repeatable across the reference and result paths — PM is the correct choice here specifically *because* non-PM fiber would let the two tap paths' polarization states drift independently and add an uncontrolled, uncalibratable error term); split ratio(s) sufficient to create a reference tap and a result tap from one source leg (a 1×2 or 1×N PM splitter, N chosen once the emulated mesh fan-out below is fixed) | `[TBD — vendor survey not performed]` | |
+| Fiber array connectors | Singlemode, 1310 nm-rated, FC/APC (angle-polished, to control back-reflection into the isolator/laser of §1) at every patch point | **`GCB-CONN-FCAPC`** `[TBD — vendor survey not performed]` — FC/APC singlemode patch infrastructure | Standard telecom-grade FC/APC patch cables/connectors; no array-specific (MT-ferrule) connector is required YET — see note below on why |
+| PM (polarization-maintaining) splitters | 1310 nm-rated, PM fiber (to keep the modulator's and the eventual mesh's polarization-dependent response well-defined and repeatable across the reference and result paths — PM is the correct choice here specifically *because* non-PM fiber would let the two tap paths' polarization states drift independently and add an uncontrolled, uncalibratable error term); split ratio(s) sufficient to create a reference tap and a result tap from one source leg (a 1×2 or 1×N PM splitter, N chosen once the emulated mesh fan-out below is fixed) | **`GCB-SPLT-1X8`** `[TBD — vendor survey not performed]` — 1×8 PM fiber splitter network (bench mesh-coupling emulation proxy) | 1×8 chosen as the emulation proxy fan-out (1 reference leg + up to 7 result-combination legs, within the existing 8-channel framing this bench already uses elsewhere). Loss-budget value for the combined splitter/network: **9.5 dB** (§3.2) — see the asymmetry caveat there |
 | 8×8 unitary-mesh **bench coupling emulation** | A passive, fixed (non-reconfigurable) optical network built from COTS PM splitters/combiners that stands in for the eventual integrated 8×8 unitary mesh's summation behavior at the level Phase I actually needs to test: **one reference leg carrying total input power, one result leg carrying a fixed-coefficient carry-save-weighted combination** — not a literal 8×8 unitary transform, since no physical device implementing one exists yet | `[TBD — vendor survey not performed]` | **This is explicitly a bench proxy, not a claim that an 8×8 unitary mesh has been built.** The exact fan-out/weighting topology of this emulation network is an open design task, not specified by this document — it should be derived from `carry_save_streaming_contract.md` §5's reconstruction math applied to whatever fixed coefficient set the Phase-I demonstration chooses, which has not been done yet |
 
 ---
@@ -102,10 +102,41 @@ supposed to cancel.
 
 ### 3.2 Transimpedance Amplifiers (×2, matched pair)
 
+**Optical loss budget & TIA gain calc (`TKT-026`, resolved 2026-09-12)** —
+nominal-point calc, reference (Tap 0) leg:
+
+| Stage | Value | Running total |
+|---|---|---|
+| Laser output (`GCB-LSR-01`) | +3 dBm (≈2 mW) | — |
+| Isolator IL (`GCB-ISO-01`) | 0.5 dB | |
+| VOA IL (`GCB-VOA-01`, nominal) | 2.0 dB | |
+| Splitter/network IL (`GCB-SPLT-1X8`) | 9.5 dB | **12.0 dB total** |
+| **Received power** | +3 − 12 = **−9 dBm ≈ 125 µW** | |
+| Photodiode responsivity (§3.1, 1310 nm) | ≈0.9 A/W | |
+| **Expected photocurrent** | 125 µW × 0.9 A/W ≈ **112.5 µA** | |
+| Target TIA full-scale | 1.5 V | |
+| **Required R_f** | 1.5 V / 112.5 µA ≈ **13.33 kΩ** | |
+
+**Component target: 13.3 kΩ precision resistor, or an adjustable gain
+stage spanning 10–20 kΩ.** The adjustable range is the actual
+recommendation, not the fixed value — every upstream number above (§1
+laser power, §1/§2 insertion losses) is still `[CANDIDATE]`/`[TBD]`, so a
+trimmable stage absorbs real-part variance once parts are actually quoted,
+rather than requiring a board re-spin.
+
+**Asymmetry caveat, not resolved by this calc:** this budget is computed
+for the reference (Tap 0, total-power) leg. The result (Tap K) leg's
+`GCB-SPLT-1X8` network loss is **not guaranteed equal** — a
+carry-save-weighted combination of multiple legs plausibly has different
+insertion loss than a single pass-through reference tap. §3's own "matched
+gain" requirement (below) assumes both taps land in the same photocurrent
+range; this has not been separately verified for Tap K and is an open item
+for whoever finalizes the `GCB-SPLT-1X8` topology (§2).
+
 | Requirement | Candidate | Notes |
 |---|---|---|
-| ~1.5 V full-scale analog output (per `02_receiver_architecture.md`: "the TIA output, ~1.5 V full scale" — this is the one analog-voltage node the "no routed analog voltage" invariant in §4 below permits, and only because it never leaves the eval board) | `[CANDIDATE — parametric fit]` a dedicated fiber-optic-receiver transimpedance amplifier IC in the general class of Analog Devices' "AD8015"-type part (a low-cost TIA historically marketed specifically for photodiode-to-voltage conversion in fiber-optic links) | The exact transimpedance gain setting needed to map this bench's actual expected photocurrent range onto 1.5 V full-scale has **not been calculated** — that requires a photocurrent estimate this document does not have (depends on laser power, §1/§2 losses, and photodiode responsivity, §3.1) |
-| Matched gain (the pair, not a single-unit spec) | Same IC, same external gain-setting component (resistor) value on both channels | Gain-setting resistor value not specified — depends on the unresolved photocurrent budget above |
+| ~1.5 V full-scale analog output (per `02_receiver_architecture.md`: "the TIA output, ~1.5 V full scale" — this is the one analog-voltage node the "no routed analog voltage" invariant in §4 below permits, and only because it never leaves the eval board) | `[CANDIDATE — parametric fit]` a dedicated fiber-optic-receiver transimpedance amplifier IC in the general class of Analog Devices' "AD8015"-type part (a low-cost TIA historically marketed specifically for photodiode-to-voltage conversion in fiber-optic links) | Gain target per the calc above: **13.3 kΩ nominal, 10–20 kΩ adjustable stage recommended** |
+| Matched gain (the pair, not a single-unit spec) | Same IC, same external gain-setting component (resistor) value on both channels | **Resolved for Tap 0**; Tap K not independently verified — see asymmetry caveat above |
 | Low noise (the TIA's own input-referred noise must not be the bench's accuracy floor ahead of the ≈10.8-bit ENOB target) | N/A — evaluate against the candidate IC's own datasheet noise spec once the gain setting above is fixed | Not yet evaluated |
 
 ### 3.3 Analog-to-Digital Conversion
@@ -165,30 +196,34 @@ point at which it is easiest to accidentally violate, because the TIA's
 
 | Section | Item | Status |
 |---|---|---|
-| §1 | CW laser source | CANDIDATE (parametric fit) |
-| §1 | Optical isolator | TBD |
-| §1 | Intensity modulator | **DECIDED: linear VOA** (`TKT-028`); specific part TBD |
+| §1 | CW laser source | `GCB-LSR-01`, CANDIDATE (parametric fit) |
+| §1 | Optical isolator | `GCB-ISO-01`, TBD |
+| §1 | Intensity modulator | `GCB-VOA-01` — **DECIDED: linear VOA** (`TKT-028`); specific part TBD |
 | §1 | DAC-to-modulator DAC | CANDIDATE (parametric fit) — AD9767 (`TKT-028`) |
 | §1 | DAC-to-modulator analog driver | CANDIDATE (parametric fit) — precision op-amp I-to-V + scaling stage (`TKT-028`); exact gain blocked on the VOA's own control-voltage range |
-| §2 | Fiber array connectors | TBD |
-| §2 | PM splitters | TBD |
+| §2 | Fiber array connectors | `GCB-CONN-FCAPC`, TBD |
+| §2 | PM splitters | `GCB-SPLT-1X8`, TBD |
 | §2 | 8×8 mesh bench coupling emulation topology | TBD (design task, not a component) |
 | §3.1 | Photodiodes (matched pair) | CANDIDATE (parametric fit); lot-matching procurement step not executed |
-| §3.2 | TIAs (matched pair) | CANDIDATE (parametric fit); gain setting not calculated (depends on an unresolved photocurrent budget) |
-| §3.3 | SAR ADC + eval board | CANDIDATE (parametric fit); **command-word compatibility with `greencoyote_adc_if.sv`'s `CMD_WORD=16'h0000` default is the one item that MUST be checked against the real datasheet before purchase** |
+| §3.2 | TIAs (matched pair) | CANDIDATE (parametric fit); **gain RESOLVED (`TKT-026`): 13.3 kΩ nominal / 10–20 kΩ adjustable, Tap 0 only — Tap K not independently verified** |
+| §3.3 | SAR ADC + eval board | CANDIDATE (parametric fit); **command-word compatibility RESOLVED (`TKT-027`): TI ADS786x needs no command word, `CMD_WORD=16'h0000` confirmed correct** |
 
 **Net effect of this document:** the citation gap (a missing file) is
 closed, and every electrical/optical requirement the existing,
 already-locked repository sources actually specify is captured in one
 place. **No part has been purchased, no part has been bench-validated, and
-the CANDIDATE entries above are starting points for a vendor quote, not a
-completed down-select.** `TKT-028` (2026-09-12) resolved §1's modulator
-architecture (VOA, decided) and put first candidates on file for the DAC
-(AD9767) and driver stage (precision op-amp I-to-V + scaling) — the exact
+the `[CANDIDATE]`/`[TBD]` entries above are starting points for a vendor
+quote, not a completed down-select** — assigning a `GCB-###` internal BOM
+reference number (this pass) is schematic-capture hygiene, not a vendor
+down-select; it lets drawings cite a stable designator while the SKU
+itself is still open. `TKT-026` (photocurrent budget → 13.3 kΩ TIA gain,
+Tap 0 only) and `TKT-027` (ADC command-word, no RTL change) are resolved.
+`TKT-028` resolved §1's modulator architecture (VOA, decided) and put
+first candidates on file for the DAC (AD9767) and driver stage — the exact
 driver gain/scaling values remain blocked on the VOA's own control-voltage
-range, which is still `[TBD]`. The photocurrent budget (§3.2, `TKT-026`)
-and the mesh-emulation topology (§2) remain concrete open engineering
-tasks this document surfaces, not resolves.
+range (`[TBD]`). The mesh-emulation topology (§2) and the Tap K loss
+asymmetry (§3.2) remain open engineering tasks this document surfaces, not
+resolves.
 
 ## Related
 
