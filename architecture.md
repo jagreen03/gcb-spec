@@ -47,8 +47,12 @@ Vortex 3.0 TCU  ──►  Q17.14 carry-save stream  ──►  optical cascade 
    bit-exact to `gcb-rtl/sim/golden_ss_readout.py`). ADR-005 selects this
    architecture; the Charge-Balancing ΔΣ branch is retired.
 5. **MMIO + host.** `greencoyote_pilot_regs.sv` / `greencoyote_axi_lite_wrapper.sv`
-   present `registers.yaml`; `gcb-host/proxy/gcb_proxy.py` is the sovereign
-   safety supervisor above it; `gcb-dashboard` renders live state.
+   present `registers.yaml`; `gcb-host/proxy/gcb_proxy.py` is a self-checking
+   Python MMIO register simulator against that same map (corrected
+   2026-09-13, checked directly: it never describes itself as a "safety
+   supervisor" anywhere in the file, and performs no supervisory/safety
+   function — it exercises the register map, it does not govern it);
+   `gcb-dashboard` renders live state.
 
 ## Governing documents
 
