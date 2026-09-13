@@ -1,0 +1,72 @@
+{
+  "_comment": "Machine-readable index for v2_personas/. Each entry: prompt.txt is committed now; image (target_filename) is generated externally (feed prompt.txt into an image model) and dropped into that persona's folder, then flip status to 'rendered' and fill rendered_at. Do not hand-edit the rendered image's pixels to match a stale prompt - regenerate from the prompt instead.",
+  "version": "v2_personas",
+  "created": "2026-09-13",
+  "saga_portal": "gcb-wiki/sagas/",
+  "entries": [
+    {
+      "id": "01_neighbor",
+      "saga": "gcb-wiki/sagas/saga-01-neighbor.md",
+      "target_filename": "diagram_stream_vs_balloon.png",
+      "prompt_file": "01_neighbor/prompt.txt",
+      "status": "prompt-only",
+      "rendered_at": null
+    },
+    {
+      "id": "02_math_professor",
+      "saga": "gcb-wiki/sagas/saga-02-math-prof.md",
+      "target_filename": "matrix_mzi_transfer.png",
+      "prompt_file": "02_math_professor/prompt.txt",
+      "status": "prompt-only",
+      "rendered_at": null
+    },
+    {
+      "id": "03_photonics_professor",
+      "saga": "gcb-wiki/sagas/saga-03-photonics-prof.md",
+      "target_filename": "femwell_mode_field_1310nm.png",
+      "prompt_file": "03_photonics_professor/prompt.txt",
+      "status": "prompt-only",
+      "rendered_at": null
+    },
+    {
+      "id": "04_electrical_engineer",
+      "saga": "gcb-wiki/sagas/saga-04-electrical-eng.md",
+      "target_filename": "u55c_floorplan_sram.png",
+      "prompt_file": "04_electrical_engineer/prompt.txt",
+      "status": "prompt-only",
+      "rendered_at": null
+    },
+    {
+      "id": "05_mechanical_engineer",
+      "saga": "gcb-wiki/sagas/saga-05-mechanical-eng.md",
+      "target_filename": "thermal_chassis_macro_density.png",
+      "prompt_file": "05_mechanical_engineer/prompt.txt",
+      "status": "prompt-only",
+      "rendered_at": null
+    },
+    {
+      "id": "06_business_investor",
+      "saga": "gcb-wiki/sagas/saga-06-investor.md",
+      "target_filename": "phase1_to_phase2_roadmap.png",
+      "prompt_file": "06_business_investor/prompt.txt",
+      "status": "prompt-only",
+      "rendered_at": null
+    },
+    {
+      "id": "07_corporate_contacts",
+      "saga": "gcb-wiki/sagas/saga-07-corporate.md",
+      "target_filename": "api_host_to_silicon_stack.png",
+      "prompt_file": "07_corporate_contacts/prompt.txt",
+      "status": "prompt-only",
+      "rendered_at": null
+    },
+    {
+      "id": "08_students",
+      "saga": "gcb-wiki/sagas/saga-08-student.md",
+      "target_filename": "toolchain_pipeline_yosys_gdsfactory.png",
+      "prompt_file": "08_students/prompt.txt",
+      "status": "prompt-only",
+      "rendered_at": null
+    }
+  ]
+}

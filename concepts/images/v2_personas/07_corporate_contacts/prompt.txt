@@ -1,0 +1,23 @@
+Enterprise software-architecture diagram, clean layered-box style (the
+look of an AWS/Azure reference-architecture slide), white background,
+blue/gray box fills, thin connecting arrows, sans-serif labels, no
+code snippets rendered as images.
+
+Four horizontal layers, top to bottom, each its own labeled box with a
+thin arrow down to the next layer:
+1. "Host application" (generic app icon)
+2. "C++ pilot driver (greencoyote_pilot.hpp)" with a small sub-label
+   "XRT / Alveo, or /dev/mem fallback"
+3. "MMIO register proxy (gcb_proxy.py)" with a small sub-label
+   "register-map simulator, v0.6.0"
+4. "AXI4-Lite register interface (registers.yaml, map v0.6.0)" as the
+   bottom layer, connecting into a small hardware-block icon labeled
+   "FPGA fabric"
+
+A separate small side box, connected by a dashed line from layer 1,
+labeled "HuggingFace model manifest negotiation (hf_manifest_gen.py)"
+with a tiny icon of a model/config file being checked against a
+hardware-capacity gauge.
+
+Clean enterprise reference-architecture style throughout - rounded
+rectangle boxes, consistent arrow style, no 3D effects.

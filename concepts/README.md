@@ -28,21 +28,44 @@ card-based compute fabric on a passive PCIe backplane, with an off-board photoni
 (Mach-Zehnder modulator) mesh reached over optical fiber. They are concept
 imagery for slide decks and design discussion, nothing more.
 
-## Index
+## Versioning
+
+`images/` is organized by generation pass, not overwritten in place:
+
+- **`v1_legacy/`** — the original 7 renders (below), moved here unchanged
+  (`git mv`, history preserved) on 2026-09-13 when `v2_personas/` was
+  added. Nothing in this folder was edited or regenerated.
+- **`v2_personas/`** — stakeholder-facing renders for the
+  [`gcb-wiki/sagas/`](../../../gcb-wiki/sagas/) narrative portal, one
+  subfolder per audience, each carrying the exact prompt text used
+  (`prompt.txt`) alongside its image — see
+  [`v2_personas/manifest.json`](images/v2_personas/manifest.json).
+
+## Index — `v1_legacy/`
 
 | File | Concept it illustrates | Maps to |
 |---|---|---|
-| `images/GreenCoyote-Bay_MVU_4U_Chassis_Cutaway.png` | Full 4U "Modular Vector Unit" chassis: 8× PCIe Gen5 x16 passive backplane, GPU shard cards, FPGA/Versal card, EF100 CXL 3.0 switch card, GCB-MEM-1 CXL DRAM expander, 4+1 fans, dual 2700 W PSU, external MZM photonic module on fiber | System-level view of the whole fabric |
-| `images/Passive_Fabric_Backplane.png` | Passive fabric backplane, 8× PCIe x16 slots, ATX 24-pin power in, power-distribution only (no active silicon) | "passive fabric" interconnect in `architecture.md` |
-| `images/Xilinx_Versal_SoC_Card.png` | Versal adaptive SoC card acting as the **GCB proxy / host bridge**: PCIe Gen4 x8 edge, UART/JTAG header, AXI4 link out to the MZM mesh | `gcb-host` proxy role; `greencoyote_axi_lite_wrapper` / MMIO register interface |
-| `images/MZM_Photonic_Mesh_Assembly.png` | Mach–Zehnder modulator photonic mesh assembly: driver array PCB over a photonic die, fiber ribbon breakout | Cascaded optical carry-save reduction fabric; `greencoyote_photonic_sequencer` |
-| `images/GPU_Shard_Card_with_AOC.png` | Dual-fan "GPU shard" accelerator card with a QSFP-DD 800G active optical cable for card-to-card optical interconnect | RFI (Reduction Fabric Interface) interconnect paper; GPU-mode datapath (`is_14gpu_mode`, `buf_full[5:0]`) |
-| `images/GCB-MEM-1_CXL_DRAM_Expander_Card.png` | CXL memory-expander card ("GCB-MEM-1, Zone B"): CXL controller ASIC plus DRAM array under a heatsink | Memory-expansion tier of the fabric |
-| `images/Blueprint-RiverHorse_Program_Mark.png` | Program/word mark ("Blueprint.RiverHorse") — infinity loop + horse-head motif | Branding placeholder only; no technical content |
+| `images/v1_legacy/GreenCoyote-Bay_MVU_4U_Chassis_Cutaway.png` | Full 4U "Modular Vector Unit" chassis: 8× PCIe Gen5 x16 passive backplane, GPU shard cards, FPGA/Versal card, EF100 CXL 3.0 switch card, GCB-MEM-1 CXL DRAM expander, 4+1 fans, dual 2700 W PSU, external MZM photonic module on fiber | System-level view of the whole fabric |
+| `images/v1_legacy/Passive_Fabric_Backplane.png` | Passive fabric backplane, 8× PCIe x16 slots, ATX 24-pin power in, power-distribution only (no active silicon) | "passive fabric" interconnect in `architecture.md` |
+| `images/v1_legacy/Xilinx_Versal_SoC_Card.png` | Versal adaptive SoC card acting as the **GCB proxy / host bridge**: PCIe Gen4 x8 edge, UART/JTAG header, AXI4 link out to the MZM mesh | `gcb-host` proxy role; `greencoyote_axi_lite_wrapper` / MMIO register interface |
+| `images/v1_legacy/MZM_Photonic_Mesh_Assembly.png` | Mach–Zehnder modulator photonic mesh assembly: driver array PCB over a photonic die, fiber ribbon breakout | Cascaded optical carry-save reduction fabric; `greencoyote_photonic_sequencer` |
+| `images/v1_legacy/GPU_Shard_Card_with_AOC.png` | Dual-fan "GPU shard" accelerator card with a QSFP-DD 800G active optical cable for card-to-card optical interconnect | RFI (Reduction Fabric Interface) interconnect paper; GPU-mode datapath (`is_14gpu_mode`, `buf_full[5:0]`) |
+| `images/v1_legacy/GCB-MEM-1_CXL_DRAM_Expander_Card.png` | CXL memory-expander card ("GCB-MEM-1, Zone B"): CXL controller ASIC plus DRAM array under a heatsink | Memory-expansion tier of the fabric |
+| `images/v1_legacy/Blueprint-RiverHorse_Program_Mark.png` | Program/word mark ("Blueprint.RiverHorse") — infinity loop + horse-head motif | Branding placeholder only; no technical content |
 
-## Provenance
+## Provenance — `v1_legacy/`
 
 - Source dump: `D:\R\P\GCB\Pictures\` (as-found; imported read-only).
 - `Blueprint-RiverHorse_Program_Mark.png` was present twice in the source
   (byte-identical, MD5 `680b01a2b5e525b02e53a64768b5f398`); one copy imported.
 - Original generator/prompt metadata was not preserved with the files.
+
+## Index — `v2_personas/`
+
+See [`images/v2_personas/manifest.json`](images/v2_personas/manifest.json)
+for the authoritative, machine-readable index (one entry per persona,
+with the saga it illustrates and a render-status flag — `prompt.txt`
+files are committed now; the `.png` renders are generated externally by
+feeding each prompt to an image model, then dropped into that persona's
+folder and the manifest's `status` flipped from `"prompt-only"` to
+`"rendered"`).

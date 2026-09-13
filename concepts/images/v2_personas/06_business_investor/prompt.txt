@@ -1,0 +1,21 @@
+Executive strategic-roadmap infographic, clean consulting-deck style
+(the look of a McKinsey/BCG slide), navy/white/teal corporate palette,
+generous white space, sans-serif typography, no clutter.
+
+A horizontal two-track timeline with a clear "today" marker on the
+left. Track A (top, solid teal line, labeled "Track A - Phase I,
+FPGA-synthesizable baseline, shipping now"): milestone dots for
+"RTL verified" -> "FPGA bring-up (Alveo U55C)" -> "pilot deployments".
+Track B (bottom, dashed navy line, labeled "Track B - Phase II,
+coherent photonic tensor fabric, long-horizon scale-up"): milestone
+dots for "photonic component validation" -> "silicon integration" ->
+"multi-node scale-out".
+
+A small side panel, clearly separated, labeled "Open-source foundry
+model (Apache 2.0)" with a simple icon (an open padlock or a branching
+git-graph icon) - conveys the licensing/ecosystem strategy without
+technical jargon.
+
+Infographic/slide style throughout: flat icons, clean milestone
+markers, one confident headline-style label per section, no technical
+diagrams or code.

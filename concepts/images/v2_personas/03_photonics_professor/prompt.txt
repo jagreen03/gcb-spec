@@ -1,0 +1,21 @@
+Scientific finite-element-method simulation plot, viridis color map,
+publication-figure style (matplotlib/COMSOL aesthetic), white margins,
+grid scale bars in nanometers, no cartoon elements.
+
+Cross-section of a silicon-on-insulator strip waveguide: a rectangular
+silicon core, 500 nm wide x 220 nm tall, sitting on a buried oxide
+layer, surrounded by oxide cladding above and to the sides. Overlay the
+fundamental quasi-TE mode's electric-field-intensity profile as a
+smooth viridis heatmap concentrated inside and just outside the core,
+evanescently decaying into the cladding.
+
+Annotate:
+- Core outline dimensions: "500 nm x 220 nm"
+- Operating wavelength, top corner: "λ = 1.31 μm (O-band)"
+- Computed effective index, bottom corner: "n_eff = 2.684623 (real
+  part, fundamental TE mode)"
+- A small color-bar legend labeled "normalized |E|^2"
+- Axis tick marks in nanometers on both edges
+
+Render as a clean, single scientific figure - the kind that would
+appear in a silicon-photonics journal paper's mode-solver section.

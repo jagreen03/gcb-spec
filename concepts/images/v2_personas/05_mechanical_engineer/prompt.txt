@@ -1,0 +1,23 @@
+Mechanical engineering cutaway rendering, clean CAD/SolidWorks-style
+line art with soft ambient shading, neutral gray/blue palette, metric
+dimension lines and leader lines throughout, no photorealistic
+materials.
+
+Cross-section of a 1U rack server chassis, side view, showing: an FPGA
+carrier card mounted vertically with a finned heat sink and directed
+airflow arrows passing front-to-back; to its right, a small daughter
+board area labeled "SRAM macro array, ~1.41 mm^2 aggregate footprint"
+with a zoomed inset showing one macro cell labeled "132.81 um x 331.8
+um (column-mux corrected)"; an optical edge-coupler fiber-array ribbon
+exiting the chassis rear panel toward a small external photonic module
+block.
+
+Annotate with standard mechanical-drawing dimension lines:
+- Chassis height: "1U = 44.45 mm"
+- Airflow arrows labeled "intake" (front) and "exhaust" (rear)
+- Heat sink fin array labeled "forced-air, front-to-back"
+- Fiber ribbon labeled "optical I/O, rear panel"
+- A small clearance callout: "min. service clearance, rear: 150 mm"
+
+Technical mechanical-drawing style throughout - thin dimension lines
+with arrowheads, consistent font, no decorative rendering.

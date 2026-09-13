@@ -1,0 +1,22 @@
+Isometric CAD-style floorplan render, clean hardware-layout aesthetic
+(the look of a Vivado/OpenROAD floorplan viewer, not a photo), muted
+blue/gray/amber palette on a dark background, precise right angles, no
+artistic lighting effects.
+
+Show an FPGA fabric floorplan: a central arithmetic/control region
+(label it "greencoyote_top - control plane") surrounded by a regular
+grid of 32 identical rectangular SRAM macro blocks arranged in 16 pairs
+(label one pair "double-buffered bank, lane N"), with thin routing
+channels between rows and visible clock-tree fan-out lines radiating
+from one corner.
+
+Annotate in clean CAD-style label callouts:
+- Top banner: "greencoyote_top - AMD Alveo U55C (xcu55c-fsvh2892-2L-e)"
+- Near the macro grid: "32 SRAM macros, double-buffered"
+- Near a thin boundary line separating one clock region: "AXI4-Lite
+  MMIO clock domain"
+- Bottom corner, small status readout style text: "WNS = +0.261 ns  |
+  602 LUT  |  8 DSP48E2"
+
+Engineering CAD/EDA tool screenshot aesthetic throughout - flat fills,
+thin white gridlines, monospace-style label text, no 3D beveling.

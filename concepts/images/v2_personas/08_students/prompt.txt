@@ -1,0 +1,21 @@
+Friendly, student-oriented flowchart, bright but clean color coding (one
+distinct color per stage), rounded step boxes with numbers, sans-serif
+labels, approachable textbook/tutorial illustration style - not overly
+corporate, not photorealistic.
+
+A left-to-right pipeline with 5 numbered steps, each its own colored
+box connected by a bold arrow to the next:
+1. (blue) "Verilog RTL" with a small code-file icon
+2. (green) "Yosys - synthesis" with a small logic-gate icon
+3. (orange) "OpenROAD - place & route" with a small chip-layout icon
+4. (purple) "gdsfactory - physical layout" with a small GDS/photonic-
+   mask icon
+5. (red) "femwell - mode solving" with a small waveguide
+   cross-section icon
+
+Below the main pipeline, a small caption banner: "Open-source EDA
+toolchain - the same pipeline used throughout this program."
+
+Approachable tutorial-diagram style throughout - friendly rounded
+shapes, clear step numbers in circles, consistent icon style, enough
+white space to not feel cluttered.

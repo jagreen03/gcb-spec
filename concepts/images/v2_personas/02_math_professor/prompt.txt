@@ -1,0 +1,21 @@
+Strict academic architectural schematic, crisp black line art on white,
+LaTeX-clean typography, textbook figure style (no color gradients, no
+photorealism, no shading beyond simple hatching).
+
+Show a 2x2 Mach-Zehnder interferometer as a signal-flow diagram: two
+input rails enter a first directional coupler (matrix C1), split into
+two arms of different physical length (label the length difference
+"Delta L"), recombine through a second directional coupler (matrix
+C2), and exit as two output rails.
+
+Annotate directly on the diagram:
+- Above the first coupler: "C1 (50/50 directional coupler)"
+- On the long arm: "phase delay  Δφ(λ) = β(λ) · ΔL"
+- Above the second coupler: "C2 (50/50 directional coupler)"
+- Below the whole block, as one line: "M(λ) = C2 · P(ΔL, λ) · C1"
+- Below that: "P(ΔL, λ) = diag(1, e^{jΔφ(λ)})"
+- Small inset box, lower right: one output rail labeled "constructive
+  interference", the other labeled "destructive interference"
+
+Clean engineering-schematic line weight throughout, arrows on every
+signal rail showing propagation direction, no extraneous decoration.
