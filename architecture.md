@@ -11,7 +11,7 @@ single-slope CIS readout, and an FPGA pilot exposes the whole thing over MMIO.
 |---|---|---|
 | **gcb-spec** | source of truth | register map (`registers.yaml` + `regen.py`), ADRs, the two integration contracts, the readout behavioural model |
 | **gcb-rtl** | pilot RTL + Vortex-side shim | `rtl/*.sv` (synthesised), `integration/*.sv` (belongs in the Vortex tree), testbenches, Vivado scripts |
-| **gcb-host** | host software | C++ pilot driver, FastAPI MMIO proxy / safety supervisor, HF model-manifest tool |
+| **gcb-host** | host software | C++ pilot driver, Python MMIO register simulator (`gcb_proxy.py` — corrected 2026-09-12, `TKT-032`: no FastAPI code, a self-checking simulator against the generated register map, not an HTTP proxy), HF model-manifest tool |
 | **gcb-dashboard** | operator UI | React fabric-monitoring dashboard |
 | **gcb-papers** | arXiv drafts + evidence | p1 cascaded reduction, p2 RFI interconnect, p3 unified matmul; all readout SPICE/RTL analysis data |
 

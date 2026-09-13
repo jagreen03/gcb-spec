@@ -72,7 +72,7 @@ collapsed to one line.
 | `gcb-rtl/sim/mmi_tree_model.py` | optical-cascade precision/noise numerical model (⇄ `bench_emulation_parameters.md`) |
 | `gcb-rtl/scripts/build.tcl`, `impl.tcl`, `constraints/*.xdc` | Vivado OOC synth/impl + timing constraints |
 | `gcb-rtl/.github/workflows/*.yml`, `integration/tb/*.sh`, `tcu_tfr_config.sh` | CI + Vortex-config sweep scripts |
-| `gcb-host/proxy/gcb_proxy.py` | FastAPI MMIO proxy / sovereign safety supervisor |
+| `gcb-host/proxy/gcb_proxy.py` | Python MMIO register simulator (corrected 2026-09-12, `TKT-032`: zero FastAPI code — a self-checking simulator against the generated register map, not an HTTP proxy) |
 | `gcb-host/include/greencoyote_pilot.hpp` | C++ pilot driver |
 | `gcb-host/tools/hf_manifest_gen.py` | HuggingFace model-manifest generator |
 | `gcb-dashboard/src/GreenCoyoteDashboard.jsx` | React dashboard component |
