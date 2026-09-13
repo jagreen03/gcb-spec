@@ -93,6 +93,8 @@ defects:
       and greencoyote_top, and rebased every 6'hXX case label to 8'hXX.
   DEFECT-002:
     severity: blocker
+    status: resolved
+    fixed_in: gcb-rtl 652e21e
     summary: >
       All outputs are declared `output reg` and then driven by continuous
       `assign`. Illegal - a variable cannot be continuously assigned. Applies
@@ -105,8 +107,17 @@ defects:
       Thermal block 0x40-0x5C is documented in the header comment but has no
       case items and no module ports. Eight registers that do not exist.
     fix: implement, or delete from the header map
+    note: >
+      Checked 2026-09-13: not a live spec/RTL mismatch. The header comment
+      already reads "NOT IMPLEMENTED (DEFECT-003)" and all eight THERMAL_*
+      register entries below already carry `implemented: false` - the
+      gap is accurately self-documented, not silently claimed otherwise.
+      Leaving severity/status as-is; whether to actually implement the
+      thermal domain is a real open decision, not a doc-accuracy fix.
   DEFECT-004:
     severity: major
+    status: resolved
+    fixed_in: gcb-rtl 652e21e
     summary: >
       Several read-decoder concatenations do not total 32 bits. Most
       zero-extend or truncate harmlessly, but TASK_ALLOC_CTRL (0x90) is 31
@@ -578,8 +589,8 @@ registers:
       - { name: TID_ACTIVE_MASK, bits: [31, 16], access: ro, source: tid_active_mask,
           description: "Bitmask of running TIDs, one bit per TID, 16 TIDs max." }
     defects:
-      - "BLOCKER: read concat totals 31 bits - the [15] pad for SHUTDOWN_ACK is missing. TID_ACTIVE_MASK therefore lands at [30:15], not [31:16]. Every TID in the mask reads one position low."
-      - "SHUTDOWN_ACK is documented in the write comment but absent from the write decoder."
+      - "RESOLVED (gcb-rtl 652e21e, DEFECT-004): read concat was 31 bits - the [15] pad for SHUTDOWN_ACK was missing, shifting TID_ACTIVE_MASK to [30:15]. Checked directly 2026-09-13 against the real read-decode (`greencoyote_pilot_regs.sv` ADDR_TASK_ALLOC_CTRL): the explicit 1'b0 pad at [15] is present and the concat totals 32 bits, matching TID_ACTIVE_MASK's documented [31,16] exactly. Kept as a historical record, not a live defect."
+      - "Still open, separate from the bit-pad fix above: SHUTDOWN_ACK is documented in the write comment but absent from the write decoder - confirmed still true 2026-09-13. No `signal:`/`output:` is defined for this field in the spec either, so this isn't a pure RTL gap: there's no named downstream signal yet for a write decoder to drive. Needs a spec decision (what SHUTDOWN_ACK should actually do) before RTL can implement it."
 
   - name: TID_STATUS
     offset: 0x94
@@ -607,7 +618,7 @@ registers:
       - { name: TILE_ALLOCATED, bits: [13, 13], access: ro, source: tile_allocated }
       - { name: RSVD,           bits: [31, 14], access: rsvd }
     defects:
-      - "BLOCKER: read concat totals 36 bits. The RTL comment claims TILE_ALLOCATED at [9] and TILE_TID at [8:5], overlapping the 9-bit TILE_SELECT. After 36->32 truncation the fields actually land at [13] and [12:9]. Spec records the actual placement; the comment is wrong and the pad must be fixed to 18'h0."
+      - "RESOLVED (gcb-rtl 652e21e, DEFECT-004): read concat was 36 bits - the RTL's own comment claimed TILE_ALLOCATED at [9] and TILE_TID at [8:5], overlapping the 9-bit TILE_SELECT. Checked directly 2026-09-13 against the real read-decode and the port-declaration comments (`greencoyote_pilot_regs.sv`): both now consistently say [13] and [12:9], the pad is 18'h0, and the concat totals 32 bits - no stale [9]/[8:5] comment remains anywhere in the file. Kept as a historical record, not a live defect."
 
   - name: TILE_SELECT
     offset: 0x9C
